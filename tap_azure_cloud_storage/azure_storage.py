@@ -203,7 +203,6 @@ def get_input_files_for_table(config, table_spec, modified_since=None):
     Get all files matching the table spec pattern and modified since the given timestamp.
     Yields dictionaries with 'key' and 'last_modified' for each matching file.
     """
-    table_name = table_spec.get('table_name', '')
     pattern = table_spec.get('search_pattern', '')
 
     matched_files_count = 0
