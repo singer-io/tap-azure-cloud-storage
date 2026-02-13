@@ -36,6 +36,9 @@ def sync_stream(config, state, table_spec, stream, sync_start_time):
     LOGGER.info('Syncing table "%s".', table_name)
     LOGGER.info('Getting files modified since %s.', modified_since)
 
+    # Reset skipped files counter for this stream to get accurate per-stream counts
+    azure_storage.skipped_files_count = 0
+
     azure_files = azure_storage.get_input_files_for_table(config, table_spec, modified_since)
 
     records_streamed = 0
@@ -97,61 +100,79 @@ def handle_file(config, blob_path, table_spec, stream, extension, file_handler=N
                 # Treat as a gz file instead
                 return sync_gz_file(config, blob_path, table_spec, stream)
 
-    if extension in ["csv", "txt", "tsv", "psv"]:
-        # Use streaming file handle - doesn't load entire file into memory
-        file_handle = file_handler if file_handler else azure_storage.get_file_handle(config, blob_path)
-        if file_handle is None:
-            azure_storage.skipped_files_count = azure_storage.skipped_files_count + 1
-            return 0
-        return sync_csv_file(config, file_handle, blob_path, table_spec, stream)
+    # Track if we own the file handle (need to close it)
+    # If file_handler was passed in, caller owns it; otherwise we need to manage it
+    own_handle = file_handler is None
+    file_handle = file_handler
+    
+    try:
+        if extension in ["csv", "txt", "tsv", "psv"]:
+            # Use streaming file handle - doesn't load entire file into memory
+            if file_handle is None:
+                file_handle = azure_storage.get_file_handle(config, blob_path)
+            if file_handle is None:
+                azure_storage.skipped_files_count = azure_storage.skipped_files_count + 1
+                return 0
+            return sync_csv_file(config, file_handle, blob_path, table_spec, stream)
 
-    if extension == "parquet":
-        file_handle = file_handler if file_handler else azure_storage.get_file_handle(config, blob_path)
-        if file_handle is None:
-            azure_storage.skipped_files_count = azure_storage.skipped_files_count + 1
-            return 0
-        return sync_parquet_file(config, file_handle, blob_path, table_spec, stream)
+        if extension == "parquet":
+            if file_handle is None:
+                file_handle = azure_storage.get_file_handle(config, blob_path)
+            if file_handle is None:
+                azure_storage.skipped_files_count = azure_storage.skipped_files_count + 1
+                return 0
+            return sync_parquet_file(config, file_handle, blob_path, table_spec, stream)
 
-    if extension == "avro":
-        file_handle = file_handler if file_handler else azure_storage.get_file_handle(config, blob_path)
-        if file_handle is None:
-            azure_storage.skipped_files_count = azure_storage.skipped_files_count + 1
-            return 0
-        return sync_avro_file(config, file_handle, blob_path, table_spec, stream)
+        if extension == "avro":
+            if file_handle is None:
+                file_handle = azure_storage.get_file_handle(config, blob_path)
+            if file_handle is None:
+                azure_storage.skipped_files_count = azure_storage.skipped_files_count + 1
+                return 0
+            return sync_avro_file(config, file_handle, blob_path, table_spec, stream)
 
-    if extension == "jsonl":
-        # Use streaming file handle - doesn't load entire file into memory
-        file_handle = file_handler if file_handler else azure_storage.get_file_handle(config, blob_path)
-        if file_handle is None:
-            azure_storage.skipped_files_count = azure_storage.skipped_files_count + 1
-            return 0
-        iterator = jsonl.get_row_iterator(file_handle)
-        records = sync_jsonl_file(config, iterator, blob_path, table_spec, stream)
-        if records == 0:
-            azure_storage.skipped_files_count = azure_storage.skipped_files_count + 1
-            LOGGER.warning('Skipping "%s" file as it is empty', blob_path)
-        return records
+        if extension == "jsonl":
+            # Use streaming file handle - doesn't load entire file into memory
+            if file_handle is None:
+                file_handle = azure_storage.get_file_handle(config, blob_path)
+            if file_handle is None:
+                azure_storage.skipped_files_count = azure_storage.skipped_files_count + 1
+                return 0
+            iterator = jsonl.get_row_iterator(file_handle)
+            records = sync_jsonl_file(config, iterator, blob_path, table_spec, stream)
+            if records == 0:
+                azure_storage.skipped_files_count = azure_storage.skipped_files_count + 1
+                LOGGER.warning('Skipping "%s" file as it is empty', blob_path)
+            return records
 
-    if extension == "xlsx":
-        # Excel file handling
-        file_handle = file_handler if file_handler else azure_storage.get_file_handle(config, blob_path)
-        if file_handle is None:
-            azure_storage.skipped_files_count = azure_storage.skipped_files_count + 1
-            return 0
-        return sync_excel_file(config, file_handle, blob_path, table_spec, stream)
+        if extension == "xlsx":
+            # Excel file handling
+            if file_handle is None:
+                file_handle = azure_storage.get_file_handle(config, blob_path)
+            if file_handle is None:
+                azure_storage.skipped_files_count = azure_storage.skipped_files_count + 1
+                return 0
+            return sync_excel_file(config, file_handle, blob_path, table_spec, stream)
 
-    if extension == "zip" or extension == "gz":
-        # If file_handler is provided, it means we're inside a compressed file already
-        # Skip nested compression to prevent infinite loops
-        if file_handler:
-            LOGGER.warning('Skipping "%s" file as it contains nested compression.', blob_path)
-            azure_storage.skipped_files_count = azure_storage.skipped_files_count + 1
-            return 0
-        return sync_compressed_file(config, blob_path, table_spec, stream)
+        if extension == "zip" or extension == "gz":
+            # If file_handler is provided, it means we're inside a compressed file already
+            # Skip nested compression to prevent infinite loops
+            if file_handler:
+                LOGGER.warning('Skipping "%s" file as it contains nested compression.', blob_path)
+                azure_storage.skipped_files_count = azure_storage.skipped_files_count + 1
+                return 0
+            return sync_compressed_file(config, blob_path, table_spec, stream)
 
-    LOGGER.warning('"%s" having the ".%s" extension will not be synced.', blob_path, extension)
-    azure_storage.skipped_files_count = azure_storage.skipped_files_count + 1
-    return 0
+        LOGGER.warning('"%s" having the ".%s" extension will not be synced.', blob_path, extension)
+        azure_storage.skipped_files_count = azure_storage.skipped_files_count + 1
+        return 0
+    finally:
+        # Close file handle only if we opened it (not passed from caller)
+        if own_handle and file_handle is not None:
+            try:
+                file_handle.close()
+            except Exception as e:
+                LOGGER.debug('Failed to close file handle for "%s": %s', blob_path, e)
 
 
 def sync_gz_file(config, blob_path, table_spec, stream, file_handler=None):
