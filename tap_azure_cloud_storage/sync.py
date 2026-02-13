@@ -161,32 +161,61 @@ def sync_gz_file(config, blob_path, table_spec, stream, file_handler=None):
     if file_object is None:
         return 0
 
-    file_bytes = file_object.read()
-    gz_file_obj = gzip.GzipFile(fileobj=io.BytesIO(file_bytes))
+    # Track whether this function owns the file handle so we can close it.
+    own_handle = file_handler is None
 
     try:
-        gz_file_name = get_file_name_from_gzfile(fileobj=io.BytesIO(file_bytes))
-    except (AttributeError, OSError) as err:
-        # If a file is compressed using gzip command with --no-name attribute,
-        # It will not return the file name and timestamp. Hence we will skip such files.
-        LOGGER.warning('Skipping "%s" file as we did not get the original file name', blob_path)
-        azure_storage.skipped_files_count = azure_storage.skipped_files_count + 1
-        return 0
+        # Ensure we read the gzip header from the beginning of the file, if possible.
+        if hasattr(file_object, "seek"):
+            file_object.seek(0)
 
-    if gz_file_name:
-        if gz_file_name.endswith(".gz"):
-            LOGGER.warning('Skipping "%s" file as it contains nested compression.', blob_path)
+        try:
+            gz_file_name = get_file_name_from_gzfile(fileobj=file_object)
+        except (AttributeError, OSError) as err:
+            # If a file is compressed using gzip command with --no-name attribute,
+            # It will not return the file name and timestamp. Hence we will skip such files.
+            LOGGER.warning('Skipping "%s" file as we did not get the original file name', blob_path)
             azure_storage.skipped_files_count = azure_storage.skipped_files_count + 1
             return 0
 
-        gz_file_extension = gz_file_name.split(".")[-1].lower()
-        return handle_file(config, blob_path + "/" + gz_file_name, table_spec, stream, gz_file_extension, io.BytesIO(gz_file_obj.read()))
+        if gz_file_name:
+            if gz_file_name.endswith(".gz"):
+                LOGGER.warning('Skipping "%s" file as it contains nested compression.', blob_path)
+                azure_storage.skipped_files_count = azure_storage.skipped_files_count + 1
+                return 0
 
-    LOGGER.warning('Skipping "%s" file - no filename found in gzip header', blob_path)
-    azure_storage.skipped_files_count = azure_storage.skipped_files_count + 1
-    return 0
+            # Prepare to stream decompressed data from the gzip file.
+            gz_file_extension = gz_file_name.split(".")[-1].lower()
 
+            # Reset to the beginning again before constructing the GzipFile.
+            if hasattr(file_object, "seek"):
+                file_object.seek(0)
 
+            gz_file_obj = gzip.GzipFile(fileobj=file_object)
+            try:
+                return handle_file(
+                    config,
+                    blob_path + "/" + gz_file_name,
+                    table_spec,
+                    stream,
+                    gz_file_extension,
+                    gz_file_obj,
+                )
+            finally:
+                # Ensure the gzip wrapper is closed after use.
+                gz_file_obj.close()
+
+        LOGGER.warning('Skipping "%s" file - no filename found in gzip header', blob_path)
+        azure_storage.skipped_files_count = azure_storage.skipped_files_count + 1
+        return 0
+    finally:
+        # Close the underlying file handle if we opened it in this function.
+        if own_handle and file_object is not None:
+            try:
+                file_object.close()
+            except Exception:
+                # Swallow any exception during close to avoid masking the original error.
+                LOGGER.debug('Failed to close file handle for "%s"', blob_path)
 def sync_compressed_file(config, blob_path, table_spec, stream):
     """Handle .zip files by extracting and syncing contents."""
     LOGGER.info('Syncing Compressed file "%s".', blob_path)
