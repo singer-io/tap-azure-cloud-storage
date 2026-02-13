@@ -226,16 +226,26 @@ def sync_compressed_file(config, blob_path, table_spec, stream):
     if file_handle is None:
         return 0
 
-    # Read the file content for decompression
-    # Note: compression.infer needs the data, but adlfs streams it efficiently
-    decompressed_files = compression.infer(io.BytesIO(file_handle.read()), blob_path)
+    try:
+        # Read the file content for decompression
+        # Note: compression.infer needs the data, but adlfs streams it efficiently
+        decompressed_files = compression.infer(io.BytesIO(file_handle.read()), blob_path)
 
-    for decompressed_file in decompressed_files:
-        extension = decompressed_file.name.split(".")[-1].lower()
+        for decompressed_file in decompressed_files:
+            extension = decompressed_file.name.split(".")[-1].lower()
 
-        if extension in ["csv", "jsonl", "gz", "txt", "tsv", "psv", "xlsx"]:
-            blob_file_path = blob_path + "/" + decompressed_file.name
-            records_streamed += handle_file(config, blob_file_path, table_spec, stream, extension, file_handler=decompressed_file)
+            if extension in ["csv", "jsonl", "gz", "txt", "tsv", "psv", "xlsx"]:
+                blob_file_path = blob_path + "/" + decompressed_file.name
+                records_streamed += handle_file(
+                    config,
+                    blob_file_path,
+                    table_spec,
+                    stream,
+                    extension,
+                    file_handler=decompressed_file,
+                )
+    finally:
+        file_handle.close()
 
     return records_streamed
 
