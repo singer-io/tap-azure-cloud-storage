@@ -311,8 +311,6 @@ def sample_file(table_spec, blob_path, data, sample_rate, extension, max_records
     """
     global skipped_files_count
 
-    lower = blob_path.lower()
-
     # Delimited text: CSV/TXT/TSV/PSV
     if extension in ['csv', 'txt', 'tsv', 'psv']:
         LOGGER.info("Processing CSV file: %s, data length: %d bytes", blob_path, len(data) if data else 0)
