@@ -565,8 +565,19 @@ def sample_files(config, table_spec, azure_files, sample_rate=5, max_records=100
                 try:
                     for record in gen:
                         sample_count += 1
-                        if sample_count <= 3:  # Log first few samples
-                            LOGGER.info("Sample record %d: %s", sample_count, record)
+                        if sample_count <= 3:  # Log first few samples (redacted)
+                            if isinstance(record, dict):
+                                LOGGER.debug(
+                                    "Sample record %d retrieved (type=dict, keys=%s)",
+                                    sample_count,
+                                    list(record.keys()),
+                                )
+                            else:
+                                LOGGER.debug(
+                                    "Sample record %d retrieved (type=%s)",
+                                    sample_count,
+                                    type(record).__name__,
+                                )
                         yield record
                     LOGGER.info("Generator exhausted after %d records", sample_count)
                 except StopIteration as e:
