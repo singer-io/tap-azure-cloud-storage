@@ -594,6 +594,8 @@ def sample_files(config, table_spec, azure_files, sample_rate=5, max_records=100
 
 def get_sampled_schema_for_table(config, table_spec):
     LOGGER.info('Sampling records to determine table schema for table "%s".', table_spec.get('table_name'))
+    global skipped_files_count
+    skipped_files_count = 0
 
     azure_files_gen = get_input_files_for_table(config, table_spec)
     azure_files_list = list(azure_files_gen)  # Convert to list to check if empty
