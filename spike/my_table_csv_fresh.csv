@@ -1,0 +1,4 @@
+id,created_at,name,active,amount
+1101,2026-01-09T10:00:00Z,Older,false,10.0
+1102,2026-01-11T08:15:00Z,Equal,true,20.0
+1103,2026-01-12T09:00:00Z,Newer,true,30.0

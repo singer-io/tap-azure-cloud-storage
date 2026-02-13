@@ -1,0 +1,28 @@
+{
+  "tenant_id": "your-azure-tenant-id",
+  "client_id": "your-azure-client-id",
+  "client_secret": "your-azure-client-secret",
+
+  "connection_string": "your-azure-connection-string",
+  "container_name": "your-azure-container-name",
+
+
+  "start_date": "2024-01-01T00:00:00Z",
+  "tables": [
+    {
+      "table_name": "customers",
+      "search_pattern": "customers.*\\.csv$",
+      "search_prefix": "exports/customers/",
+      "key_properties": ["customer_id"],
+      "date_overrides": ["created_at", "updated_at"],
+      "delimiter": ","
+    },
+    {
+      "table_name": "orders",
+      "search_pattern": "orders.*\\.parquet$",
+      "search_prefix": "exports/orders/",
+      "key_properties": ["order_id"],
+      "date_overrides": ["order_date", "shipped_date"]
+    }
+  ]
+}
