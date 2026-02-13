@@ -243,7 +243,7 @@ def _get_records_for_csv(blob_path, sample_rate, buffer, table_spec, max_records
                 if max_records is not None and sampled_row_count >= max_records:
                     break
             current_row += 1
-        LOGGER.info("CSV sampl completed: %d rows sampled from %d total", sampled_row_count, current_row)
+        LOGGER.info("CSV sampling completed: %d rows sampled from %d total", sampled_row_count, current_row)
     except Exception as e:
         LOGGER.error("Error sampling CSV file %s: %s", blob_path, e, exc_info=True)
 
