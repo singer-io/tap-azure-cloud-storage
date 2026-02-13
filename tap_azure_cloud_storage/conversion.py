@@ -41,6 +41,8 @@ def infer(key, datum, date_overrides, check_second_call=False):
             pass
 
     except (ValueError, TypeError):
+        # On any unexpected ValueError or TypeError during inference,
+        # fall through and use the default 'string' type below.
         pass
 
     return 'string'
