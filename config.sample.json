@@ -8,6 +8,7 @@
 
 
   "start_date": "2024-01-01T00:00:00Z",
+  "max_zip_file_size_mb": 512,
   "tables": [
     {
       "table_name": "customers",

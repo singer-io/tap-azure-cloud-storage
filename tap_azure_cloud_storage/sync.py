@@ -217,7 +217,12 @@ def sync_gz_file(config, blob_path, table_spec, stream, file_handler=None):
                 # Swallow any exception during close to avoid masking the original error.
                 LOGGER.debug('Failed to close file handle for "%s"', blob_path)
 def sync_compressed_file(config, blob_path, table_spec, stream):
-    """Handle .zip files by extracting and syncing contents."""
+    """Handle .zip files by extracting and syncing contents.
+    
+    Note: Due to the zip format's design (central directory at end of file),
+    the entire compressed file must be loaded into memory for extraction.
+    For large archives, this can be memory-intensive.
+    """
     LOGGER.info('Syncing Compressed file "%s".', blob_path)
 
     records_streamed = 0
@@ -226,16 +231,72 @@ def sync_compressed_file(config, blob_path, table_spec, stream):
     if file_handle is None:
         return 0
 
-    # Read the file content for decompression
-    # Note: compression.infer needs the data, but adlfs streams it efficiently
-    decompressed_files = compression.infer(io.BytesIO(file_handle.read()), blob_path)
+    # Check file size before loading into memory
+    # Default max zip size: 512 MB (configurable via max_zip_file_size_mb)
+    max_size_mb = config.get('max_zip_file_size_mb', 512)
+    max_size_bytes = max_size_mb * 1024 * 1024
+    
+    try:
+        # Get file size from the file handle
+        file_info = file_handle.info()
+        file_size = file_info.get('size', 0)
+        
+        if file_size > max_size_bytes:
+            LOGGER.warning(
+                'Skipping "%s" - file size (%.2f MB) exceeds maximum supported '
+                'zip archive size (%.2f MB). The zip format requires loading the '
+                'entire file into memory. To process larger archives, increase '
+                'max_zip_file_size_mb in config (current: %d MB).',
+                blob_path,
+                file_size / (1024 * 1024),
+                max_size_bytes / (1024 * 1024),
+                max_size_mb
+            )
+            azure_storage.skipped_files_count = azure_storage.skipped_files_count + 1
+            return 0
+        
+        if file_size > 100 * 1024 * 1024:  # Log warning for files > 100MB
+            LOGGER.info(
+                'Loading large zip archive "%s" (%.2f MB) into memory for extraction. '
+                'This may take some time.',
+                blob_path,
+                file_size / (1024 * 1024)
+            )
+    except Exception as e:
+        # If we can't get file size, log a warning and proceed cautiously
+        LOGGER.warning(
+            'Could not determine size of "%s" before loading: %s. '
+            'Proceeding with extraction, but this may fail for very large archives.',
+            blob_path, e
+        )
 
-    for decompressed_file in decompressed_files:
-        extension = decompressed_file.name.split(".")[-1].lower()
+    try:
+        # Read the file content for decompression
+        # Note: compression.infer requires the full file due to zip format limitations
+        decompressed_files = compression.infer(io.BytesIO(file_handle.read()), blob_path)
 
-        if extension in ["csv", "jsonl", "gz", "txt", "tsv", "psv", "xlsx"]:
-            blob_file_path = blob_path + "/" + decompressed_file.name
-            records_streamed += handle_file(config, blob_file_path, table_spec, stream, extension, file_handler=decompressed_file)
+        for decompressed_file in decompressed_files:
+            extension = decompressed_file.name.split(".")[-1].lower()
+
+            if extension in ["csv", "jsonl", "gz", "txt", "tsv", "psv", "xlsx"]:
+                blob_file_path = blob_path + "/" + decompressed_file.name
+                records_streamed += handle_file(config, blob_file_path, table_spec, stream, extension, file_handler=decompressed_file)
+    except MemoryError:
+        LOGGER.error(
+            'Out of memory while extracting "%s". The file is too large to process. '
+            'Consider reducing max_zip_file_size_mb in config or processing the archive '
+            'outside of the tap.',
+            blob_path
+        )
+        azure_storage.skipped_files_count = azure_storage.skipped_files_count + 1
+        return 0
+    finally:
+        # Ensure file handle is closed
+        if file_handle is not None:
+            try:
+                file_handle.close()
+            except Exception:
+                LOGGER.debug('Failed to close file handle for "%s"', blob_path)
 
     return records_streamed
 

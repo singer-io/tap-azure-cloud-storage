@@ -156,6 +156,7 @@ For Azure-hosted environments (Azure VMs, Azure Functions, etc.):
 | `connection_string` | No | Azure Storage connection string |
 | `account_key` | No | Azure Storage account key |
 | `root_path` | No | Root path prefix within the container |
+| `max_zip_file_size_mb` | No | Maximum supported zip archive size in MB (default: 512). Zip files larger than this will be skipped. |
 
 ### Table Configuration
 
@@ -353,8 +354,12 @@ The tap automatically adds metadata columns to each record:
 - Automatic type inference
 
 ### Compressed Files
-- **Gzip (.gz)**: Automatically decompressed
+- **Gzip (.gz)**: Automatically decompressed using streaming
 - **Zip (.zip)**: All contained files processed
+  - **Memory limitation**: Due to the zip format's design, the entire archive must be loaded into memory for extraction
+  - **Size limit**: Archives larger than `max_zip_file_size_mb` (default 512 MB) are skipped
+  - **Performance**: Large archives (>100 MB) may take significant time and memory
+  - **Configuration**: Adjust `max_zip_file_size_mb` based on your environment's available memory
 - Nested compression not supported
 
 ## Permissions and Security
@@ -419,6 +424,24 @@ az role assignment create \
 - Check file encoding (must be UTF-8)
 - For CSV files, verify headers are present
 - Increase sampling by adding more files matching the pattern
+
+### Large Zip Archive Issues
+
+**Problem**: "Skipping <file> - file size exceeds maximum supported zip archive size"
+
+**Solutions**:
+- Increase `max_zip_file_size_mb` in your config.json based on available memory
+- Ensure your environment has sufficient memory (recommended: 2-3x the zip file size)
+- Consider extracting large archives outside the tap and processing individual files instead
+- Monitor memory usage when processing large archives
+
+**Problem**: Out of memory errors when processing zip files
+
+**Solutions**:
+- Reduce `max_zip_file_size_mb` to prevent loading oversized files
+- Increase available memory for the tap process
+- Process smaller batches of files
+- Extract large archives manually and sync the extracted files instead
 
 ## Development
 
