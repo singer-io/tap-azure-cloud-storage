@@ -75,8 +75,11 @@ def pick_datatype(counts):
     list_of_datatypes = ['list.date-time', 'list.dict', 'list.integer',
                          'list.number', 'list.string', 'list', 'date-time', 'dict']
 
+    # Only return these special datatypes when they are the *only* inferred type
+    # for the field. Otherwise, fall through to the integer/number logic and
+    # ultimately default to 'string' for mixed-type fields.
     for data_types in list_of_datatypes:
-        if counts.get(data_types, 0) > 0:
+        if counts.get(data_types, 0) > 0 and len(counts) == 1:
             return data_types
 
     if len(counts) == 1:
