@@ -38,7 +38,13 @@ def do_sync(config, catalog, state, sync_start_time):
     for stream in catalog['streams']:
         stream_name = stream['tap_stream_id']
         mdata = metadata.to_map(stream['metadata'])
-        table_spec = next(s for s in config['tables'] if s['table_name'] == stream_name)
+        table_spec = next((s for s in config['tables'] if s.get('table_name') == stream_name), None)
+        if table_spec is None:
+            LOGGER.error(
+                "No table configuration found for stream '%s'; skipping this stream.",
+                stream_name,
+            )
+            continue
         if not stream_is_selected(mdata):
             continue
 
