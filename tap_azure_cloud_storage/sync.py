@@ -414,33 +414,37 @@ def sync_excel_file(config, file_handle, blob_path, table_spec, stream):
 
     try:
         from singer_encodings import excel_reader
-        iterator = excel_reader.get_row_iterator(file_handle)
+        options = {
+            'key_properties': table_spec.get('key_properties', []),
+            'date_overrides': table_spec.get('date_overrides', [])
+        }
+        iterator = excel_reader.get_excel_row_iterator(file_handle, options=options)
     except Exception as e:
         LOGGER.warning('Failed to read Excel file %s: %s', blob_path, e)
         azure_storage.skipped_files_count = azure_storage.skipped_files_count + 1
         return 0
 
-    records_synced = 0
-
-    if iterator is not None:
-        for row in iterator:
-            if not isinstance(row, dict) or len(row) == 0:
-                continue
-
-            custom_columns = {
-                azure_storage.SDC_SOURCE_CONTAINER_COLUMN: container,
-                azure_storage.SDC_SOURCE_FILE_COLUMN: blob_path,
-                azure_storage.SDC_SOURCE_LINENO_COLUMN: records_synced + 2
-            }
-            rec = {**row, **custom_columns}
-
-            with Transformer() as transformer:
-                to_write = transformer.transform(rec, stream['schema'], metadata.to_map(stream['metadata']))
-
-            singer.write_record(table_name, to_write)
-            records_synced += 1
-    else:
+    if iterator is None:
         LOGGER.warning('Skipping "%s" file as it is empty', blob_path)
         azure_storage.skipped_files_count = azure_storage.skipped_files_count + 1
+        return 0
+
+    records_synced = 0
+    for sheet_name, row_dict in iterator:
+        if not isinstance(row_dict, dict) or len(row_dict) == 0:
+            continue
+
+        custom_columns = {
+            azure_storage.SDC_SOURCE_CONTAINER_COLUMN: container,
+            azure_storage.SDC_SOURCE_FILE_COLUMN: f"{blob_path}/{sheet_name}",
+            azure_storage.SDC_SOURCE_LINENO_COLUMN: records_synced + 2
+        }
+        rec = {**row_dict, **custom_columns}
+
+        with Transformer() as transformer:
+            to_write = transformer.transform(rec, stream['schema'], metadata.to_map(stream['metadata']))
+
+        singer.write_record(table_name, to_write)
+        records_synced += 1
 
     return records_synced

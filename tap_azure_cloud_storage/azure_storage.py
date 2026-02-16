@@ -337,15 +337,30 @@ def sample_file(table_spec, blob_path, data, sample_rate, extension, max_records
         # Excel files will be handled by singer_encodings.excel_reader
         try:
             from singer_encodings import excel_reader
-            for idx, row in enumerate(excel_reader.get_row_iterator(io.BytesIO(data))):
-                if (idx % sample_rate) == 0 and isinstance(row, dict):
-                    yield row
+            options = {
+                'key_properties': table_spec.get('key_properties', []),
+                'date_overrides': table_spec.get('date_overrides', [])
+            }
+            iterator = excel_reader.get_excel_row_iterator(
+                io.BytesIO(data),
+                options=options
+            )
+            if iterator is None:
+                # Empty Excel file
+                LOGGER.warning('Skipping "%s" file as it is empty', blob_path)
+                skipped_files_count += 1
+                return
+
+            idx = 0
+            for sheet_name, row_dict in iterator:
+                if (idx % sample_rate) == 0 and isinstance(row_dict, dict):
+                    yield row_dict
                     if max_records is not None and idx >= max_records * sample_rate:
                         break
+                idx += 1
         except Exception as e:
             LOGGER.warning('Failed to sample Excel file %s: %s', blob_path, e)
             skipped_files_count += 1
-            return []
     else:
         LOGGER.warning('"%s" with unsupported extension ".%s" will not be sampled.', blob_path, extension)
         skipped_files_count += 1
