@@ -1,0 +1,3 @@
+id,name,description
+1,First Item,Old file uploaded before start_date
+2,Second Item,Should not be synced
