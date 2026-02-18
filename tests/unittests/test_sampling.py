@@ -116,13 +116,13 @@ class TestGetFilesToSampleFunction(unittest.TestCase):
         mock_client.open.return_value.__enter__.return_value.read.return_value = b"id,name\n1,test\n"
         mock_setup_client.return_value = mock_client
 
-        # Create 10 mock Azure files
+        # Create 10 Azure file dicts with 'key' property as expected by get_files_to_sample
         azure_files = []
         for i in range(10):
-            mock_file = MagicMock()
-            mock_file.name = f'file{i}.csv'
-            mock_file.last_modified = datetime(2026, 1, 10 + i)
-            azure_files.append(mock_file)
+            azure_files.append({
+                'key': f'file{i}.csv',
+                'last_modified': datetime(2026, 1, 10 + i)
+            })
 
         config = {'container_name': 'test-container'}
         max_files = 3
@@ -142,13 +142,13 @@ class TestGetFilesToSampleFunction(unittest.TestCase):
         mock_client.open.return_value.__enter__.return_value.read.return_value = b"id,name\n1,test\n"
         mock_setup_client.return_value = mock_client
 
-        # Create 5 mock Azure files
+        # Create 5 Azure file dicts with 'key' property as expected by get_files_to_sample
         azure_files = []
         for i in range(5):
-            mock_file = MagicMock()
-            mock_file.name = f'file{i}.csv'
-            mock_file.last_modified = datetime(2026, 1, 10 + i)
-            azure_files.append(mock_file)
+            azure_files.append({
+                'key': f'file{i}.csv',
+                'last_modified': datetime(2026, 1, 10 + i)
+            })
 
         config = {'container_name': 'test-container'}
         max_files = 100  # Large enough to process all
