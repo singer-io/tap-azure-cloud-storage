@@ -1,81 +1,167 @@
 """
 Unit tests for sampling functionality in tap-azure-cloud-storage.
-Tests sample_rate, max_records, and max_files parameters.
+Tests sample_rate, max_records, and max_files parameters with actual tap functions.
 """
 
 import unittest
 from unittest.mock import Mock, patch, MagicMock
 from datetime import datetime
+import io
 
 
-class TestSamplingParameters(unittest.TestCase):
-    """Test sampling parameter behavior"""
+class TestSampleFileFunction(unittest.TestCase):
+    """Test the sample_file function with actual tap implementation"""
 
-    def test_sample_rate_controls_record_selection(self):
-        """Test that sample_rate=5 samples every 5th record"""
-        # Test the concept of sampling every 5th record
-        all_records = list(range(20))
+    def test_sample_rate_on_csv_file(self):
+        """Test that sample_rate=5 samples every 5th record from CSV"""
+        from tap_azure_cloud_storage import azure_storage
+
+        # Create test CSV data with 20 rows
+        csv_data = "id,name\n"
+        for i in range(20):
+            csv_data += f"{i},Item{i}\n"
+
+        table_spec = {'delimiter': ','}
         sample_rate = 5
+        max_records = 1000
 
-        sampled = [rec for i, rec in enumerate(all_records) if i % sample_rate == 0]
+        # Test the actual sample_file function
+        records = list(azure_storage.sample_file(
+            table_spec, 
+            'test.csv', 
+            csv_data.encode('utf-8'), 
+            sample_rate, 
+            'csv',
+            max_records
+        ))
 
         # Should get rows 0, 5, 10, 15 (4 records)
-        self.assertEqual(len(sampled), 4)
-        self.assertEqual(sampled[0], 0)
-        self.assertEqual(sampled[1], 5)
-        self.assertEqual(sampled[2], 10)
-        self.assertEqual(sampled[3], 15)
+        self.assertEqual(len(records), 4)
+        self.assertEqual(records[0]['id'], '0')
+        self.assertEqual(records[1]['id'], '5')
+        self.assertEqual(records[2]['id'], '10')
+        self.assertEqual(records[3]['id'], '15')
 
-    def test_sample_rate_1_samples_every_record(self):
-        """Test that sample_rate=1 samples every record"""
-        # Test sampling with rate 1
-        all_records = list(range(10))
-        sample_rate = 1
+    def test_sample_rate_on_jsonl_file(self):
+        """Test that sample_rate=3 samples every 3rd record from JSONL"""
+        from tap_azure_cloud_storage import azure_storage
 
-        sampled = [rec for i, rec in enumerate(all_records) if i % sample_rate == 0]
+        # Create test JSONL data with 10 rows
+        jsonl_data = ""
+        for i in range(10):
+            jsonl_data += f'{{"id": {i}, "name": "Item{i}"}}\n'
 
-        # Should get all 10 records
-        self.assertEqual(len(sampled), 10)
+        table_spec = {}
+        sample_rate = 3
+        max_records = 1000
 
-    def test_max_records_limits_total_samples(self):
-        """Test that max_records limits the total number of sampled records"""
-        # Test limiting to max_records
-        all_records = list(range(100))
+        # Test the actual sample_file function
+        records = list(azure_storage.sample_file(
+            table_spec,
+            'test.jsonl',
+            jsonl_data.encode('utf-8'),
+            sample_rate,
+            'jsonl',
+            max_records
+        ))
+
+        # Should get rows 0, 3, 6, 9 (4 records)
+        self.assertEqual(len(records), 4)
+        self.assertEqual(records[0]['id'], 0)
+        self.assertEqual(records[1]['id'], 3)
+        self.assertEqual(records[2]['id'], 6)
+        self.assertEqual(records[3]['id'], 9)
+
+    def test_max_records_limits_csv_sampling(self):
+        """Test that max_records limits the number of sampled CSV records"""
+        from tap_azure_cloud_storage import azure_storage
+
+        # Create test CSV data with 100 rows
+        csv_data = "id,value\n"
+        for i in range(100):
+            csv_data += f"{i},{i*10}\n"
+
+        table_spec = {'delimiter': ','}
         sample_rate = 5
-        max_records = 3
+        max_records = 3  # Limit to 3 records
 
-        sampled = []
-        for i, rec in enumerate(all_records):
-            if i % sample_rate == 0:
-                sampled.append(rec)
-                if len(sampled) >= max_records:
-                    break
+        # Test the actual sample_file function
+        records = list(azure_storage.sample_file(
+            table_spec,
+            'test.csv',
+            csv_data.encode('utf-8'),
+            sample_rate,
+            'csv',
+            max_records
+        ))
 
-        # Should stop at 3 records even though more would match
-        self.assertEqual(len(sampled), 3)
-
-    def test_max_records_with_different_sample_rate(self):
-        """Test max_records with different sample rate"""
-        # Test max_records with sample_rate=2
-        all_records = list(range(50))
-        sample_rate = 2
-        max_records = 5
-
-        sampled = []
-        for i, rec in enumerate(all_records):
-            if i % sample_rate == 0:
-                sampled.append(rec)
-                if len(sampled) >= max_records:
-                    break
-
-        # Should get exactly 5 records (0, 2, 4, 6, 8)
-        self.assertEqual(len(sampled), 5)
-        self.assertEqual(sampled[0], 0)
-        self.assertEqual(sampled[4], 8)
+        # Should stop at 3 records
+        self.assertEqual(len(records), 3)
+        self.assertEqual(records[0]['id'], '0')
+        self.assertEqual(records[1]['id'], '5')
+        self.assertEqual(records[2]['id'], '10')
 
 
-class TestSamplingWithAzureFiles(unittest.TestCase):
-    """Test sampling concepts with file operations"""
+class TestGetFilesToSampleFunction(unittest.TestCase):
+    """Test the get_files_to_sample function"""
+
+    @patch('tap_azure_cloud_storage.azure_storage.setup_azure_client')
+    def test_max_files_limits_file_processing(self, mock_setup_client):
+        """Test that max_files limits the number of files processed"""
+        from tap_azure_cloud_storage import azure_storage
+
+        mock_client = MagicMock()
+        
+        # Mock returning a simple CSV content
+        mock_client.open.return_value.__enter__.return_value.read.return_value = b"id,name\n1,test\n"
+        mock_setup_client.return_value = mock_client
+
+        # Create 10 mock Azure files
+        azure_files = []
+        for i in range(10):
+            mock_file = MagicMock()
+            mock_file.name = f'file{i}.csv'
+            mock_file.last_modified = datetime(2026, 1, 10 + i)
+            azure_files.append(mock_file)
+
+        config = {'container_name': 'test-container'}
+        max_files = 3
+
+        # Test the actual get_files_to_sample function
+        sampled_files = azure_storage.get_files_to_sample(config, azure_files, max_files)
+
+        # Should only process 3 files
+        self.assertEqual(len(sampled_files), 3)
+
+    @patch('tap_azure_cloud_storage.azure_storage.setup_azure_client')
+    def test_get_files_to_sample_processes_all_when_max_none(self, mock_setup_client):
+        """Test that all files are processed when max_files is large"""
+        from tap_azure_cloud_storage import azure_storage
+
+        mock_client = MagicMock()
+        mock_client.open.return_value.__enter__.return_value.read.return_value = b"id,name\n1,test\n"
+        mock_setup_client.return_value = mock_client
+
+        # Create 5 mock Azure files
+        azure_files = []
+        for i in range(5):
+            mock_file = MagicMock()
+            mock_file.name = f'file{i}.csv'
+            mock_file.last_modified = datetime(2026, 1, 10 + i)
+            azure_files.append(mock_file)
+
+        config = {'container_name': 'test-container'}
+        max_files = 100  # Large enough to process all
+
+        # Test the actual get_files_to_sample function
+        sampled_files = azure_storage.get_files_to_sample(config, azure_files, max_files)
+
+        # Should process all 5 files
+        self.assertEqual(len(sampled_files), 5)
+
+
+class TestAzureFileOperations(unittest.TestCase):
+    """Test Azure file operations for sampling"""
 
     @patch('tap_azure_cloud_storage.azure_storage.setup_azure_client')
     def test_get_file_handle_for_sampling(self, mock_setup_client):
@@ -96,73 +182,77 @@ class TestSamplingWithAzureFiles(unittest.TestCase):
         mock_client.open.assert_called_once_with('test-container/test.csv', 'rb')
 
 
-class TestMaxFilesParameter(unittest.TestCase):
-    """Test max_files parameter"""
-
-    def test_max_files_limits_file_processing(self):
-        """Test that max_files limits the number of files processed"""
-        all_files = [
-            {'key': f'file{i}.csv', 'last_modified': datetime(2026, 1, 10 + i)}
-            for i in range(10)
-        ]
-
-        max_files = 3
-        files_to_process = all_files[:max_files]
-
-        # Should only process 3 files
-        self.assertEqual(len(files_to_process), 3)
-        self.assertEqual(files_to_process[0]['key'], 'file0.csv')
-        self.assertEqual(files_to_process[2]['key'], 'file2.csv')
-
-    def test_max_files_none_processes_all_files(self):
-        """Test that max_files=None processes all files"""
-        all_files = [
-            {'key': f'file{i}.csv', 'last_modified': datetime(2026, 1, 10 + i)}
-            for i in range(10)
-        ]
-
-        max_files = None
-        files_to_process = all_files if max_files is None else all_files[:max_files]
-
-        # Should process all 10 files
-        self.assertEqual(len(files_to_process), 10)
-
-
 class TestSamplingEdgeCases(unittest.TestCase):
     """Test edge cases in sampling"""
 
-    def test_empty_file_returns_no_records(self):
-        """Test that empty files return no records"""
-        # Test with empty data
-        all_records = []
+    def test_empty_csv_returns_no_records(self):
+        """Test that empty CSV files return no records"""
+        from tap_azure_cloud_storage import azure_storage
+
+        # Empty CSV with just headers
+        csv_data = "id,name\n"
+
+        table_spec = {'delimiter': ','}
         sample_rate = 1
+        max_records = 1000
 
-        sampled = [rec for i, rec in enumerate(all_records) if i % sample_rate == 0]
+        records = list(azure_storage.sample_file(
+            table_spec,
+            'empty.csv',
+            csv_data.encode('utf-8'),
+            sample_rate,
+            'csv',
+            max_records
+        ))
 
-        self.assertEqual(len(sampled), 0)
+        self.assertEqual(len(records), 0)
 
-    def test_single_record_file(self):
-        """Test sampling a file with a single record"""
-        # Test with single record
-        all_records = [{'id': 1, 'name': 'Alice'}]
+    def test_single_record_csv(self):
+        """Test sampling a CSV file with a single record"""
+        from tap_azure_cloud_storage import azure_storage
+
+        csv_data = "id,name\n1,Alice\n"
+
+        table_spec = {'delimiter': ','}
         sample_rate = 1
+        max_records = 1000
 
-        sampled = [rec for i, rec in enumerate(all_records) if i % sample_rate == 0]
+        records = list(azure_storage.sample_file(
+            table_spec,
+            'single.csv',
+            csv_data.encode('utf-8'),
+            sample_rate,
+            'csv',
+            max_records
+        ))
 
-        self.assertEqual(len(sampled), 1)
-        self.assertEqual(sampled[0]['id'], 1)
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]['id'], '1')
+        self.assertEqual(records[0]['name'], 'Alice')
 
     def test_sample_rate_larger_than_file_size(self):
         """Test when sample_rate is larger than the number of records"""
-        # Test sample rate larger than data
-        all_records = [1, 2, 3]  # Only 3 records
-        sample_rate = 10
+        from tap_azure_cloud_storage import azure_storage
 
-        sampled = [rec for i, rec in enumerate(all_records) if i % sample_rate == 0]
+        # CSV with only 3 records
+        csv_data = "id,value\n1,100\n2,200\n3,300\n"
 
-        # Should get only record 0 (first record)
-        self.assertEqual(len(sampled), 1)
-        self.assertEqual(sampled[0], 1)
+        table_spec = {'delimiter': ','}
+        sample_rate = 10  # Larger than number of records
+        max_records = 1000
+
+        records = list(azure_storage.sample_file(
+            table_spec,
+            'small.csv',
+            csv_data.encode('utf-8'),
+            sample_rate,
+            'csv',
+            max_records
+        ))
+
+        # Should get only the first record (index 0)
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]['id'], '1')
 
 
 if __name__ == '__main__':

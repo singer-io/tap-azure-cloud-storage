@@ -35,7 +35,19 @@ class AzureCloudStorageStartDateTest(AzureCloudStorageBaseTest):
         # Upload second file after start_date
         delete_and_push_file(self.get_properties(), ["start_date_2.csv"], None)
 
+        # Create connection AFTER setting START_DATE
         self.conn_id = connections.ensure_connection(self)
+
+    def get_properties(self, original: bool = True):
+        """Override to use START_DATE when it's available."""
+        props = super().get_properties(original)
+        # If START_DATE has been set and we're not requesting original, use it
+        if hasattr(self, 'START_DATE') and self.START_DATE and not original:
+            props['start_date'] = self.START_DATE
+        # For this test, always use START_DATE if it's been set
+        elif hasattr(self, 'START_DATE') and self.START_DATE:
+            props['start_date'] = self.START_DATE
+        return props
 
     def resource_name(self):
         return ["start_date_1.csv", "start_date_2.csv"]
