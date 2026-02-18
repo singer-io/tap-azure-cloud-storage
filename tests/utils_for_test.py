@@ -1,7 +1,6 @@
 import os
 import json
 from azure.storage.blob import BlobServiceClient
-from tap_tester import menagerie, connections
 
 
 def get_resources_path(file_path, folder_path=None):
@@ -67,16 +66,16 @@ def delete_and_push_file(properties, resource_names, folder_path=None, search_pr
         print(f"Uploaded file: {blob_path}")
 
 
-def get_file_handle(config, blob_path):
+def download_blob_bytes(config, blob_path):
     """
-    Get a file handle for reading from Azure Blob Storage.
+    Download blob content from Azure Blob Storage as bytes.
 
     Args:
         config (dict): Configuration with connection_string and container_name
         blob_path (str): Path to the file in Azure Blob Storage
 
     Returns:
-        File-like object: Readable stream from Azure Blob Storage
+        bytes: Full blob content as bytes
     """
     connection_string = config['connection_string']
     container_name = config['container_name']

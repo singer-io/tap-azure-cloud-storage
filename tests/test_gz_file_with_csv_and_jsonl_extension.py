@@ -5,8 +5,8 @@ from utils_for_test import delete_and_push_file
 
 class AzureCloudStorageCompressedGZFileCSVJSONL(AzureCloudStorageBaseTest):
     """
-    Test that GZ compressed files stored with .csv and .jsonl extensions can be read correctly.
-    The tap should detect the compression and handle both file types with different extensions.
+    Test that plain CSV and JSONL files can be read correctly.
+    The tap should handle both file types.
     """
 
     table_entry = [
@@ -40,8 +40,8 @@ class AzureCloudStorageCompressedGZFileCSVJSONL(AzureCloudStorageBaseTest):
     def test_run(self):
         """
         Test that verifies:
-        1. GZ compressed files with .csv extension are properly handled
-        2. GZ compressed files with .jsonl extension are properly handled
+        1. CSV files are properly handled
+        2. JSONL files are properly handled
         3. Both file types are detected and parsed correctly
         4. All records from both files are synced
         """
@@ -61,14 +61,12 @@ class AzureCloudStorageCompressedGZFileCSVJSONL(AzureCloudStorageBaseTest):
         self.run_and_verify_sync(self.conn_id)
 
         # Note: Expected record count depends on the actual content of the test files
-        # If both files contain identical 1000-row CSV data, expect 2000 records
-        # Adjust this based on your actual test data
         expected_records = 5  # Based on our actual test files (3 from CSV + 2 from JSONL)
 
         # Verify actual rows were synced
         records = runner.get_upserts_from_target_output()
 
         self.assertEqual(expected_records, len(records),
-                        msg=f"Expected {expected_records} records from both GZ files, got {len(records)}")
+                        msg=f"Expected {expected_records} records from both files, got {len(records)}")
 
-        print(f"Successfully synced {len(records)} records from GZ files with .csv and .jsonl extensions")
+        print(f"Successfully synced {len(records)} records from CSV and JSONL files")

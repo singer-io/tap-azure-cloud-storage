@@ -6,48 +6,135 @@ import re
 
 class TestFileMatching(unittest.TestCase):
 
-    def test_pattern_matches_csv_files(self):
-        """Test that CSV pattern matches .csv files"""
-        pattern = re.compile(r'.*\.csv$')
+    @patch('tap_azure_cloud_storage.azure_storage.list_files_in_container')
+    def test_pattern_matches_csv_files(self, mock_list_files):
+        """Test that CSV pattern matches .csv files via _iter_matching_blobs"""
+        from tap_azure_cloud_storage import azure_storage
 
-        self.assertTrue(pattern.match('data.csv'))
-        self.assertTrue(pattern.match('exports/2024/data.csv'))
-        self.assertFalse(pattern.match('data.txt'))
-        self.assertFalse(pattern.match('data.csv.gz'))
+        config = {"container_name": "test-container"}
+        table_spec = {"search_pattern": r'.*\.csv$'}
 
-    def test_pattern_matches_jsonl_files(self):
-        """Test that JSONL pattern matches .jsonl files"""
-        pattern = re.compile(r'.*\.jsonl$')
+        # Create mock blob objects with name attribute
+        mock_blobs = []
+        for name in ["data.csv", "exports/2024/data.csv", "data.txt", "data.csv.gz"]:
+            mock_blob = MagicMock()
+            mock_blob.name = name
+            mock_blobs.append(mock_blob)
 
-        self.assertTrue(pattern.match('data.jsonl'))
-        self.assertTrue(pattern.match('logs/app.jsonl'))
-        self.assertFalse(pattern.match('data.json'))
+        mock_list_files.return_value = mock_blobs
 
-    def test_pattern_matches_parquet_files(self):
-        """Test that Parquet pattern matches .parquet files"""
-        pattern = re.compile(r'.*\.parquet$')
+        matching_files = list(azure_storage._iter_matching_blobs(config, table_spec))
+        matching_names = [f.name for f in matching_files]
 
-        self.assertTrue(pattern.match('data.parquet'))
-        self.assertTrue(pattern.match('warehouse/table.parquet'))
-        self.assertFalse(pattern.match('data.csv'))
+        self.assertIn("data.csv", matching_names)
+        self.assertIn("exports/2024/data.csv", matching_names)
+        self.assertNotIn("data.txt", matching_names)
+        self.assertNotIn("data.csv.gz", matching_names)
 
-    def test_pattern_matches_avro_files(self):
-        """Test that Avro pattern matches .avro files"""
-        pattern = re.compile(r'.*\.avro$')
+    @patch('tap_azure_cloud_storage.azure_storage.list_files_in_container')
+    def test_pattern_matches_jsonl_files(self, mock_list_files):
+        """Test that JSONL pattern matches .jsonl files via _iter_matching_blobs"""
+        from tap_azure_cloud_storage import azure_storage
 
-        self.assertTrue(pattern.match('data.avro'))
-        self.assertTrue(pattern.match('stream/events.avro'))
-        self.assertFalse(pattern.match('data.parquet'))
+        config = {"container_name": "test-container"}
+        table_spec = {"search_pattern": r'.*\.jsonl$'}
 
-    def test_pattern_matches_excel_files(self):
-        """Test that Excel pattern matches .xlsx and .xls files"""
-        pattern_xlsx = re.compile(r'.*\.xlsx$')
-        pattern_xls = re.compile(r'.*\.xls$')
+        # Create mock blob objects with name attribute
+        mock_blobs = []
+        for name in ["data.jsonl", "logs/app.jsonl", "data.json"]:
+            mock_blob = MagicMock()
+            mock_blob.name = name
+            mock_blobs.append(mock_blob)
 
-        self.assertTrue(pattern_xlsx.match('data.xlsx'))
-        self.assertTrue(pattern_xlsx.match('reports/2024/sales.xlsx'))
-        self.assertTrue(pattern_xls.match('old_data.xls'))
-        self.assertFalse(pattern_xlsx.match('data.csv'))
+        mock_list_files.return_value = mock_blobs
+
+        matching_files = list(azure_storage._iter_matching_blobs(config, table_spec))
+        matching_names = [f.name for f in matching_files]
+
+        self.assertIn("data.jsonl", matching_names)
+        self.assertIn("logs/app.jsonl", matching_names)
+        self.assertNotIn("data.json", matching_names)
+
+    @patch('tap_azure_cloud_storage.azure_storage.list_files_in_container')
+    def test_pattern_matches_parquet_files(self, mock_list_files):
+        """Test that Parquet pattern matches .parquet files via _iter_matching_blobs"""
+        from tap_azure_cloud_storage import azure_storage
+
+        config = {"container_name": "test-container"}
+        table_spec = {"search_pattern": r'.*\.parquet$'}
+
+        # Create mock blob objects with name attribute
+        mock_blobs = []
+        for name in ["data.parquet", "warehouse/table.parquet", "data.csv"]:
+            mock_blob = MagicMock()
+            mock_blob.name = name
+            mock_blobs.append(mock_blob)
+
+        mock_list_files.return_value = mock_blobs
+
+        matching_files = list(azure_storage._iter_matching_blobs(config, table_spec))
+        matching_names = [f.name for f in matching_files]
+
+        self.assertIn("data.parquet", matching_names)
+        self.assertIn("warehouse/table.parquet", matching_names)
+        self.assertNotIn("data.csv", matching_names)
+
+    @patch('tap_azure_cloud_storage.azure_storage.list_files_in_container')
+    def test_pattern_matches_avro_files(self, mock_list_files):
+        """Test that Avro pattern matches .avro files via _iter_matching_blobs"""
+        from tap_azure_cloud_storage import azure_storage
+
+        config = {"container_name": "test-container"}
+        table_spec = {"search_pattern": r'.*\.avro$'}
+
+        # Create mock blob objects with name attribute
+        mock_blobs = []
+        for name in ["data.avro", "stream/events.avro", "data.parquet"]:
+            mock_blob = MagicMock()
+            mock_blob.name = name
+            mock_blobs.append(mock_blob)
+
+        mock_list_files.return_value = mock_blobs
+
+        matching_files = list(azure_storage._iter_matching_blobs(config, table_spec))
+        matching_names = [f.name for f in matching_files]
+
+        self.assertIn("data.avro", matching_names)
+        self.assertIn("stream/events.avro", matching_names)
+        self.assertNotIn("data.parquet", matching_names)
+
+    @patch('tap_azure_cloud_storage.azure_storage.list_files_in_container')
+    def test_pattern_matches_excel_files(self, mock_list_files):
+        """Test that Excel pattern matches .xlsx and .xls files via _iter_matching_blobs"""
+        from tap_azure_cloud_storage import azure_storage
+
+        config = {"container_name": "test-container"}
+        table_spec_xlsx = {"search_pattern": r'.*\.xlsx$'}
+        table_spec_xls = {"search_pattern": r'.*\.xls$'}
+
+        # Create mock blob objects with name attribute
+        mock_blobs = []
+        for name in ["data.xlsx", "reports/2024/sales.xlsx", "old_data.xls", "data.csv"]:
+            mock_blob = MagicMock()
+            mock_blob.name = name
+            mock_blobs.append(mock_blob)
+
+        mock_list_files.return_value = mock_blobs
+
+        matching_xlsx = list(azure_storage._iter_matching_blobs(config, table_spec_xlsx))
+        matching_xlsx_names = [f.name for f in matching_xlsx]
+
+        matching_xls = list(azure_storage._iter_matching_blobs(config, table_spec_xls))
+        matching_xls_names = [f.name for f in matching_xls]
+
+        self.assertIn("data.xlsx", matching_xlsx_names)
+        self.assertIn("reports/2024/sales.xlsx", matching_xlsx_names)
+        self.assertNotIn("old_data.xls", matching_xlsx_names)
+        self.assertNotIn("data.csv", matching_xlsx_names)
+
+        self.assertIn("old_data.xls", matching_xls_names)
+        self.assertNotIn("data.xlsx", matching_xls_names)
+        self.assertNotIn("data.csv", matching_xls_names)
 
 
 class TestPrefixFiltering(unittest.TestCase):

@@ -12,13 +12,15 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.join(SCRIPT_DIR, '..', '..')
 
 def compress_file(input_filename, output_filename):
-    """Compress a file using gzip."""
+    """Compress a file using gzip with original filename in header."""
     input_path = os.path.join(SCRIPT_DIR, input_filename)
     output_path = os.path.join(SCRIPT_DIR, output_filename)
     
+    # Open the output file and create a GzipFile with the original filename in the header
     with open(input_path, 'rb') as f_in:
-        with gzip.open(output_path, 'wb') as f_out:
-            shutil.copyfileobj(f_in, f_out)
+        with open(output_path, 'wb') as f_out_raw:
+            with gzip.GzipFile(filename=input_filename, mode='wb', fileobj=f_out_raw) as f_out:
+                shutil.copyfileobj(f_in, f_out)
     
     print(f"Created {output_filename} from {input_filename}")
 

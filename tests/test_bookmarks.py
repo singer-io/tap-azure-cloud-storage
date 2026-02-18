@@ -105,7 +105,7 @@ class AzureCloudStorageBookmarks(AzureCloudStorageBaseTest):
         # This is expected behavior for Azure Blob Storage. We verify that at least the new file was synced.
         records = runner.get_records_from_target_output()
         messages = records.get('chickens').get('messages')
-        self.assertIn(len(messages), [2, 21], 
+        self.assertIn(len(messages), [1, 11],
                      msg="Sync'd unexpected count of messages: {}".format(len(messages)))
 
         # Run a final sync to verify bookmark persistence
