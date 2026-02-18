@@ -5,8 +5,12 @@ from utils_for_test import delete_and_push_file
 
 class AzureCloudStorageAutomaticFieldsTest(AzureCloudStorageBaseTest):
     """
-    Test that automatic fields (primary keys and _sdc fields) are always included
-    in the sync, even when not explicitly selected.
+    Test that automatic fields (primary keys) are always included in the sync,
+    even when not explicitly selected.
+    
+    Note: _sdc_* fields are marked as 'available' (not 'automatic') in the tap's
+    metadata, so they may or may not be present in synced records depending on
+    whether they are explicitly selected.
     """
 
     table_entry = [
