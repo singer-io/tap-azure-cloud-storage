@@ -11,7 +11,7 @@ setup(name='tap-azure-cloud-storage',
       install_requires=[
           'backoff==2.2.1',
           'urllib3==2.2.1',
-          'singer-encodings==0.3.0',
+          'singer-encodings==0.4.0',
           'singer-python==6.1.1',
           'azure-storage-blob==12.19.0',
           'azure-identity==1.15.0',
