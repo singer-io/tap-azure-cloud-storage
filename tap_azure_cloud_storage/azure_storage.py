@@ -149,6 +149,8 @@ def list_files_in_container(config):
         raise ValueError("Container name not found in config")
 
     try:
+        # Strip leading slash from prefix to avoid double slashes
+        prefix = prefix.lstrip('/') if prefix else ""
         # Build the path for adlfs
         path = f"{container_name}/{prefix}" if prefix else container_name
 

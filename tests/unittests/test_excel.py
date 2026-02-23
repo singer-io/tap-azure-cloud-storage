@@ -47,8 +47,8 @@ class TestExcelFileDetection(unittest.TestCase):
 class TestExcelSampling(unittest.TestCase):
     """Test Excel file sampling for schema discovery"""
 
-    @patch('tap_azure_cloud_storage.azure_storage.excel_reader')
-    def test_sample_excel_file_with_valid_data(self, mock_excel_reader):
+    @patch('singer_encodings.excel_reader.get_excel_row_iterator')
+    def test_sample_excel_file_with_valid_data(self, mock_get_iterator):
         """Test sampling Excel file returns records"""
         from tap_azure_cloud_storage import azure_storage
 
@@ -60,7 +60,7 @@ class TestExcelSampling(unittest.TestCase):
             ('Sheet1', {'employee_id': 4, 'name': 'David', 'salary': 100000}),
             ('Sheet1', {'employee_id': 5, 'name': 'Eve', 'salary': 95000}),
         ]
-        mock_excel_reader.get_excel_row_iterator.return_value = iter(mock_iterator)
+        mock_get_iterator.return_value = iter(mock_iterator)
 
         table_spec = {'key_properties': ['employee_id'], 'date_overrides': []}
         blob_path = 'employees.xlsx'
@@ -76,13 +76,13 @@ class TestExcelSampling(unittest.TestCase):
         # First record should be index 0 (Alice)
         self.assertEqual(records[0]['employee_id'], 1)
 
-    @patch('tap_azure_cloud_storage.azure_storage.excel_reader')
-    def test_sample_excel_file_handles_empty_file(self, mock_excel_reader):
+    @patch('singer_encodings.excel_reader.get_excel_row_iterator')
+    def test_sample_excel_file_handles_empty_file(self, mock_get_iterator):
         """Test sampling Excel file handles empty files gracefully"""
         from tap_azure_cloud_storage import azure_storage
 
         # Mock Excel reader returning None for empty file
-        mock_excel_reader.get_excel_row_iterator.return_value = None
+        mock_get_iterator.return_value = None
 
         table_spec = {'key_properties': [], 'date_overrides': []}
         blob_path = 'empty.xlsx'
@@ -95,8 +95,8 @@ class TestExcelSampling(unittest.TestCase):
 
         self.assertEqual(len(records), 0)
 
-    @patch('tap_azure_cloud_storage.azure_storage.excel_reader')
-    def test_sample_excel_file_respects_sample_rate(self, mock_excel_reader):
+    @patch('singer_encodings.excel_reader.get_excel_row_iterator')
+    def test_sample_excel_file_respects_sample_rate(self, mock_get_iterator):
         """Test that Excel sampling respects sample_rate parameter"""
         from tap_azure_cloud_storage import azure_storage
 
@@ -105,7 +105,7 @@ class TestExcelSampling(unittest.TestCase):
             ('Sheet1', {'id': i, 'value': i * 100})
             for i in range(10)
         ]
-        mock_excel_reader.get_excel_row_iterator.return_value = iter(mock_iterator)
+        mock_get_iterator.return_value = iter(mock_iterator)
 
         table_spec = {'key_properties': ['id']}
         sample_rate = 3  # Every 3rd record
@@ -121,13 +121,13 @@ class TestExcelSampling(unittest.TestCase):
         self.assertEqual(records[2]['id'], 6)
         self.assertEqual(records[3]['id'], 9)
 
-    @patch('tap_azure_cloud_storage.azure_storage.excel_reader')
-    def test_sample_excel_file_handles_exception(self, mock_excel_reader):
+    @patch('singer_encodings.excel_reader.get_excel_row_iterator')
+    def test_sample_excel_file_handles_exception(self, mock_get_iterator):
         """Test that Excel sampling handles exceptions gracefully"""
         from tap_azure_cloud_storage import azure_storage
 
         # Mock Excel reader raising an exception
-        mock_excel_reader.get_excel_row_iterator.side_effect = Exception('Corrupted Excel file')
+        mock_get_iterator.side_effect = Exception('Corrupted Excel file')
 
         table_spec = {'key_properties': []}
 
@@ -143,8 +143,8 @@ class TestExcelSync(unittest.TestCase):
     """Test Excel file syncing functionality"""
 
     @patch('tap_azure_cloud_storage.sync.singer.write_record')
-    @patch('tap_azure_cloud_storage.sync.excel_reader')
-    def test_sync_excel_file_writes_records(self, mock_excel_reader, mock_write_record):
+    @patch('singer_encodings.excel_reader.get_excel_row_iterator')
+    def test_sync_excel_file_writes_records(self, mock_get_iterator, mock_write_record):
         """Test that sync_excel_file writes records with correct structure"""
         from tap_azure_cloud_storage.sync import sync_excel_file
 
@@ -153,7 +153,7 @@ class TestExcelSync(unittest.TestCase):
             ('Employees', {'employee_id': 1, 'first_name': 'Alice', 'salary': 95000}),
             ('Employees', {'employee_id': 2, 'first_name': 'Bob', 'salary': 85000}),
         ]
-        mock_excel_reader.get_excel_row_iterator.return_value = iter(mock_iterator)
+        mock_get_iterator.return_value = iter(mock_iterator)
 
         config = {'container_name': 'test-container'}
         file_handle = io.BytesIO(b'mock_excel_data')
@@ -191,13 +191,13 @@ class TestExcelSync(unittest.TestCase):
         # _sdc_source_file should include sheet name
         self.assertIn('Employees', record['_sdc_source_file'])
 
-    @patch('tap_azure_cloud_storage.sync.excel_reader')
-    def test_sync_excel_file_handles_empty_file(self, mock_excel_reader):
+    @patch('singer_encodings.excel_reader.get_excel_row_iterator')
+    def test_sync_excel_file_handles_empty_file(self, mock_get_iterator):
         """Test that sync_excel_file handles empty Excel files"""
         from tap_azure_cloud_storage.sync import sync_excel_file
 
         # Mock empty Excel file
-        mock_excel_reader.get_excel_row_iterator.return_value = None
+        mock_get_iterator.return_value = None
 
         config = {'container_name': 'test-container'}
         file_handle = io.BytesIO(b'empty')
@@ -210,13 +210,13 @@ class TestExcelSync(unittest.TestCase):
         # Should return 0 records for empty file
         self.assertEqual(records_synced, 0)
 
-    @patch('tap_azure_cloud_storage.sync.excel_reader')
-    def test_sync_excel_file_handles_exception(self, mock_excel_reader):
+    @patch('singer_encodings.excel_reader.get_excel_row_iterator')
+    def test_sync_excel_file_handles_exception(self, mock_get_iterator):
         """Test that sync_excel_file handles exceptions during reading"""
         from tap_azure_cloud_storage.sync import sync_excel_file
 
         # Mock Excel reader raising an exception
-        mock_excel_reader.get_excel_row_iterator.side_effect = Exception('Excel parsing error')
+        mock_get_iterator.side_effect = Exception('Excel parsing error')
 
         config = {'container_name': 'test-container'}
         file_handle = io.BytesIO(b'corrupted_data')
@@ -230,8 +230,8 @@ class TestExcelSync(unittest.TestCase):
         self.assertEqual(records_synced, 0)
 
     @patch('tap_azure_cloud_storage.sync.singer.write_record')
-    @patch('tap_azure_cloud_storage.sync.excel_reader')
-    def test_sync_excel_file_includes_sheet_name_in_source_file(self, mock_excel_reader, mock_write_record):
+    @patch('singer_encodings.excel_reader.get_excel_row_iterator')
+    def test_sync_excel_file_includes_sheet_name_in_source_file(self, mock_get_iterator, mock_write_record):
         """Test that _sdc_source_file includes the Excel sheet name"""
         from tap_azure_cloud_storage.sync import sync_excel_file
 
@@ -241,7 +241,7 @@ class TestExcelSync(unittest.TestCase):
             ('Sales', {'id': 2, 'amount': 2000}),
             ('Marketing', {'id': 3, 'budget': 5000}),
         ]
-        mock_excel_reader.get_excel_row_iterator.return_value = iter(mock_iterator)
+        mock_get_iterator.return_value = iter(mock_iterator)
 
         config = {'container_name': 'reports'}
         file_handle = io.BytesIO(b'data')
@@ -266,8 +266,8 @@ class TestExcelSync(unittest.TestCase):
         self.assertIn('quarterly_report.xlsx/Marketing', third_record['_sdc_source_file'])
 
     @patch('tap_azure_cloud_storage.sync.singer.write_record')
-    @patch('tap_azure_cloud_storage.sync.excel_reader')
-    def test_sync_excel_file_skips_empty_rows(self, mock_excel_reader, mock_write_record):
+    @patch('singer_encodings.excel_reader.get_excel_row_iterator')
+    def test_sync_excel_file_skips_empty_rows(self, mock_get_iterator, mock_write_record):
         """Test that sync_excel_file skips empty or invalid rows"""
         from tap_azure_cloud_storage.sync import sync_excel_file
 
@@ -279,7 +279,7 @@ class TestExcelSync(unittest.TestCase):
             ('Sheet1', {'id': 2, 'name': 'Bob'}),
             ('Sheet1', ''),  # Empty string (not dict)
         ]
-        mock_excel_reader.get_excel_row_iterator.return_value = iter(mock_iterator)
+        mock_get_iterator.return_value = iter(mock_iterator)
 
         config = {'container_name': 'test'}
         file_handle = io.BytesIO(b'data')
@@ -294,8 +294,8 @@ class TestExcelSync(unittest.TestCase):
         self.assertEqual(mock_write_record.call_count, 2)
 
     @patch('tap_azure_cloud_storage.sync.singer.write_record')
-    @patch('tap_azure_cloud_storage.sync.excel_reader')
-    def test_sync_excel_file_increments_line_numbers(self, mock_excel_reader, mock_write_record):
+    @patch('singer_encodings.excel_reader.get_excel_row_iterator')
+    def test_sync_excel_file_increments_line_numbers(self, mock_get_iterator, mock_write_record):
         """Test that _sdc_source_lineno increments for each record"""
         from tap_azure_cloud_storage.sync import sync_excel_file
 
@@ -304,7 +304,7 @@ class TestExcelSync(unittest.TestCase):
             ('Sheet1', {'id': 2}),
             ('Sheet1', {'id': 3}),
         ]
-        mock_excel_reader.get_excel_row_iterator.return_value = iter(mock_iterator)
+        mock_get_iterator.return_value = iter(mock_iterator)
 
         config = {'container_name': 'test'}
         file_handle = io.BytesIO(b'data')
@@ -324,12 +324,12 @@ class TestExcelSync(unittest.TestCase):
 class TestExcelWithDateOverrides(unittest.TestCase):
     """Test Excel file handling with date_overrides configuration"""
 
-    @patch('tap_azure_cloud_storage.sync.excel_reader')
-    def test_excel_reader_receives_date_overrides(self, mock_excel_reader):
+    @patch('singer_encodings.excel_reader.get_excel_row_iterator')
+    def test_excel_reader_receives_date_overrides(self, mock_get_iterator):
         """Test that date_overrides are passed to Excel reader"""
         from tap_azure_cloud_storage.sync import sync_excel_file
 
-        mock_excel_reader.get_excel_row_iterator.return_value = iter([])
+        mock_get_iterator.return_value = iter([])
 
         config = {'container_name': 'test'}
         file_handle = io.BytesIO(b'data')
@@ -344,7 +344,7 @@ class TestExcelWithDateOverrides(unittest.TestCase):
         sync_excel_file(config, file_handle, blob_path, table_spec, stream)
 
         # Verify options were passed correctly
-        call_args = mock_excel_reader.get_excel_row_iterator.call_args
+        call_args = mock_get_iterator.call_args
         options = call_args[1]['options']
 
         self.assertEqual(options['key_properties'], ['id'])
@@ -355,8 +355,8 @@ class TestExcelHyperlinks(unittest.TestCase):
     """Test Excel file handling with hyperlinks"""
 
     @patch('tap_azure_cloud_storage.sync.singer.write_record')
-    @patch('tap_azure_cloud_storage.sync.excel_reader')
-    def test_sync_excel_file_with_hyperlinks(self, mock_excel_reader, mock_write_record):
+    @patch('singer_encodings.excel_reader.get_excel_row_iterator')
+    def test_sync_excel_file_with_hyperlinks(self, mock_get_iterator, mock_write_record):
         """Test that Excel cells with hyperlinks are synced correctly"""
         from tap_azure_cloud_storage.sync import sync_excel_file
 
@@ -376,7 +376,7 @@ class TestExcelHyperlinks(unittest.TestCase):
                 'document': 'Q1_Summary.pdf'
             }),
         ]
-        mock_excel_reader.get_excel_row_iterator.return_value = iter(mock_iterator)
+        mock_get_iterator.return_value = iter(mock_iterator)
 
         config = {'container_name': 'test-container'}
         file_handle = io.BytesIO(b'excel_with_hyperlinks')
@@ -397,8 +397,8 @@ class TestExcelHyperlinks(unittest.TestCase):
         self.assertEqual(first_record['document'], 'Annual Report 2024')
 
     @patch('tap_azure_cloud_storage.sync.singer.write_record')
-    @patch('tap_azure_cloud_storage.sync.excel_reader')
-    def test_excel_hyperlinks_preserve_cell_values(self, mock_excel_reader, mock_write_record):
+    @patch('singer_encodings.excel_reader.get_excel_row_iterator')
+    def test_excel_hyperlinks_preserve_cell_values(self, mock_get_iterator, mock_write_record):
         """Test that hyperlinked cells preserve their display values in records"""
         from tap_azure_cloud_storage.sync import sync_excel_file
 
@@ -411,7 +411,7 @@ class TestExcelHyperlinks(unittest.TestCase):
                 'price': 99.99
             }),
         ]
-        mock_excel_reader.get_excel_row_iterator.return_value = iter(mock_iterator)
+        mock_get_iterator.return_value = iter(mock_iterator)
 
         config = {'container_name': 'catalog'}
         file_handle = io.BytesIO(b'data')
@@ -426,8 +426,8 @@ class TestExcelHyperlinks(unittest.TestCase):
         self.assertEqual(written_record['specs_link'], 'View Specifications')
         self.assertEqual(written_record['product_id'], 'PROD-001')
 
-    @patch('tap_azure_cloud_storage.azure_storage.excel_reader')
-    def test_sample_excel_with_hyperlinks(self, mock_excel_reader):
+    @patch('singer_encodings.excel_reader.get_excel_row_iterator')
+    def test_sample_excel_with_hyperlinks(self, mock_get_iterator):
         """Test that sampling Excel files with hyperlinks works correctly"""
         from tap_azure_cloud_storage import azure_storage
 
@@ -437,7 +437,7 @@ class TestExcelHyperlinks(unittest.TestCase):
             ('Sheet1', {'id': 2, 'link': 'Read More', 'value': 200}),
             ('Sheet1', {'id': 3, 'link': 'Download', 'value': 300}),
         ]
-        mock_excel_reader.get_excel_row_iterator.return_value = iter(mock_iterator)
+        mock_get_iterator.return_value = iter(mock_iterator)
 
         table_spec = {'key_properties': ['id']}
         records = list(azure_storage.sample_file(
@@ -455,8 +455,8 @@ class TestExcelComments(unittest.TestCase):
     """Test Excel file handling with cell comments/notes"""
 
     @patch('tap_azure_cloud_storage.sync.singer.write_record')
-    @patch('tap_azure_cloud_storage.sync.excel_reader')
-    def test_sync_excel_file_with_comments(self, mock_excel_reader, mock_write_record):
+    @patch('singer_encodings.excel_reader.get_excel_row_iterator')
+    def test_sync_excel_file_with_comments(self, mock_get_iterator, mock_write_record):
         """Test that Excel cells with comments are synced (comments are typically ignored)"""
         from tap_azure_cloud_storage.sync import sync_excel_file
 
@@ -476,7 +476,7 @@ class TestExcelComments(unittest.TestCase):
                 'salary': 85000
             }),
         ]
-        mock_excel_reader.get_excel_row_iterator.return_value = iter(mock_iterator)
+        mock_get_iterator.return_value = iter(mock_iterator)
 
         config = {'container_name': 'hr-data'}
         file_handle = io.BytesIO(b'excel_with_comments')
@@ -500,8 +500,8 @@ class TestExcelComments(unittest.TestCase):
         self.assertEqual(second_record['status'], 'On Leave')
 
     @patch('tap_azure_cloud_storage.sync.singer.write_record')
-    @patch('tap_azure_cloud_storage.sync.excel_reader')
-    def test_excel_comments_do_not_affect_cell_values(self, mock_excel_reader, mock_write_record):
+    @patch('singer_encodings.excel_reader.get_excel_row_iterator')
+    def test_excel_comments_do_not_affect_cell_values(self, mock_get_iterator, mock_write_record):
         """Test that cell comments don't interfere with extracting cell values"""
         from tap_azure_cloud_storage.sync import sync_excel_file
 
@@ -514,7 +514,7 @@ class TestExcelComments(unittest.TestCase):
                 'unit': 'USD'
             }),
         ]
-        mock_excel_reader.get_excel_row_iterator.return_value = iter(mock_iterator)
+        mock_get_iterator.return_value = iter(mock_iterator)
 
         config = {'container_name': 'metrics'}
         file_handle = io.BytesIO(b'data')
@@ -531,8 +531,8 @@ class TestExcelComments(unittest.TestCase):
         self.assertEqual(written_record['value'], 1500000)
         self.assertEqual(written_record['metric_name'], 'Revenue')
 
-    @patch('tap_azure_cloud_storage.azure_storage.excel_reader')
-    def test_sample_excel_with_comments(self, mock_excel_reader):
+    @patch('singer_encodings.excel_reader.get_excel_row_iterator')
+    def test_sample_excel_with_comments(self, mock_get_iterator):
         """Test that sampling Excel files with cell comments works correctly"""
         from tap_azure_cloud_storage import azure_storage
 
@@ -542,7 +542,7 @@ class TestExcelComments(unittest.TestCase):
             ('Notes', {'id': 2, 'description': 'Project Beta', 'priority': 'Medium'}),
             ('Notes', {'id': 3, 'description': 'Project Gamma', 'priority': 'Low'}),
         ]
-        mock_excel_reader.get_excel_row_iterator.return_value = iter(mock_iterator)
+        mock_get_iterator.return_value = iter(mock_iterator)
 
         table_spec = {'key_properties': ['id']}
         records = list(azure_storage.sample_file(
@@ -556,8 +556,8 @@ class TestExcelComments(unittest.TestCase):
         self.assertEqual(records[1]['priority'], 'Medium')
 
     @patch('tap_azure_cloud_storage.sync.singer.write_record')
-    @patch('tap_azure_cloud_storage.sync.excel_reader')
-    def test_excel_with_rich_text_comments(self, mock_excel_reader, mock_write_record):
+    @patch('singer_encodings.excel_reader.get_excel_row_iterator')
+    def test_excel_with_rich_text_comments(self, mock_get_iterator, mock_write_record):
         """Test that Excel cells with formatted/rich text comments sync correctly"""
         from tap_azure_cloud_storage.sync import sync_excel_file
 
@@ -570,7 +570,7 @@ class TestExcelComments(unittest.TestCase):
                 'due_date': '2024-03-15'  # Comment with colored text
             }),
         ]
-        mock_excel_reader.get_excel_row_iterator.return_value = iter(mock_iterator)
+        mock_get_iterator.return_value = iter(mock_iterator)
 
         config = {'container_name': 'tasks'}
         file_handle = io.BytesIO(b'data')
@@ -593,8 +593,8 @@ class TestExcelSpecialFeatures(unittest.TestCase):
     """Test Excel files with special features like merged cells, formulas, etc."""
 
     @patch('tap_azure_cloud_storage.sync.singer.write_record')
-    @patch('tap_azure_cloud_storage.sync.excel_reader')
-    def test_excel_with_formulas_extracts_calculated_values(self, mock_excel_reader, mock_write_record):
+    @patch('singer_encodings.excel_reader.get_excel_row_iterator')
+    def test_excel_with_formulas_extracts_calculated_values(self, mock_get_iterator, mock_write_record):
         """Test that Excel formulas are resolved to their calculated values"""
         from tap_azure_cloud_storage.sync import sync_excel_file
 
@@ -614,7 +614,7 @@ class TestExcelSpecialFeatures(unittest.TestCase):
                 'total': 210.00  # Result of formula
             }),
         ]
-        mock_excel_reader.get_excel_row_iterator.return_value = iter(mock_iterator)
+        mock_get_iterator.return_value = iter(mock_iterator)
 
         config = {'container_name': 'orders'}
         file_handle = io.BytesIO(b'data')
@@ -634,8 +634,8 @@ class TestExcelSpecialFeatures(unittest.TestCase):
         self.assertEqual(second_record['total'], 210.00)
 
     @patch('tap_azure_cloud_storage.sync.singer.write_record')
-    @patch('tap_azure_cloud_storage.sync.excel_reader')
-    def test_excel_with_merged_cells(self, mock_excel_reader, mock_write_record):
+    @patch('singer_encodings.excel_reader.get_excel_row_iterator')
+    def test_excel_with_merged_cells(self, mock_get_iterator, mock_write_record):
         """Test that merged cells are handled correctly"""
         from tap_azure_cloud_storage.sync import sync_excel_file
 
@@ -658,7 +658,7 @@ class TestExcelSpecialFeatures(unittest.TestCase):
                 'sales': 45000
             }),
         ]
-        mock_excel_reader.get_excel_row_iterator.return_value = iter(mock_iterator)
+        mock_get_iterator.return_value = iter(mock_iterator)
 
         config = {'container_name': 'reports'}
         file_handle = io.BytesIO(b'data')
@@ -676,8 +676,8 @@ class TestExcelSpecialFeatures(unittest.TestCase):
             record = mock_write_record.call_args_list[i][0][1]
             self.assertEqual(record['region'], 'North America')
 
-    @patch('tap_azure_cloud_storage.azure_storage.excel_reader')
-    def test_sample_excel_with_formulas(self, mock_excel_reader):
+    @patch('singer_encodings.excel_reader.get_excel_row_iterator')
+    def test_sample_excel_with_formulas(self, mock_get_iterator):
         """Test that sampling Excel files with formulas works correctly"""
         from tap_azure_cloud_storage import azure_storage
 
@@ -686,7 +686,7 @@ class TestExcelSpecialFeatures(unittest.TestCase):
             ('Calculations', {'id': 1, 'value_a': 10, 'value_b': 20, 'sum': 30}),
             ('Calculations', {'id': 2, 'value_a': 15, 'value_b': 25, 'sum': 40}),
         ]
-        mock_excel_reader.get_excel_row_iterator.return_value = iter(mock_iterator)
+        mock_get_iterator.return_value = iter(mock_iterator)
 
         table_spec = {'key_properties': ['id']}
         records = list(azure_storage.sample_file(
