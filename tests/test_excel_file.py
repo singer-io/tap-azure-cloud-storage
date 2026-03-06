@@ -111,6 +111,8 @@ class AzureCloudStorageExcelTest(AzureCloudStorageBaseTest):
                     )
 
                 # Verify sample employee data
+                # The tap unwraps singer-encodings comment wrappers via
+                # unwrap_excel_commented_cells(), so values are plain scalars.
                 employee_ids = [msg['data']['employee_id'] for msg in upsert_messages]
                 self.assertIn(1, employee_ids, msg="Employee ID 1 not found")
                 self.assertIn(10, employee_ids, msg="Employee ID 10 not found")
@@ -121,3 +123,8 @@ class AzureCloudStorageExcelTest(AzureCloudStorageBaseTest):
                 self.assertIn('Marketing', departments)
                 self.assertIn('Sales', departments)
                 self.assertIn('HR', departments)
+
+                # Verify commented cells were unwrapped to plain values
+                first_record = upsert_messages[0]['data']
+                self.assertEqual(first_record['employee_id'], 1)
+                self.assertEqual(first_record['salary'], 95000)

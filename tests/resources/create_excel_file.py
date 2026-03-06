@@ -1,16 +1,20 @@
 """
 Helper script to create Excel test file for integration tests.
-Generates a .xlsx file with sample employee data.
+Generates a .xlsx file with sample employee data including cell comments.
+
+singer_encodings preserves cell comments in synced records as:
+    [{"text": <cell_value>, "comment": {"text": "...", "excel_author": "..."}}]
 """
 
 import openpyxl
 from openpyxl import Workbook
+from openpyxl.comments import Comment
 import os
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 def create_excel_test_file():
-    """Create employees.xlsx with sample employee data."""
+    """Create employees.xlsx with sample employee data and cell comments."""
     excel_path = os.path.join(SCRIPT_DIR, 'employees.xlsx')
 
     # Create a new workbook and select the active sheet
@@ -39,12 +43,21 @@ def create_excel_test_file():
     for employee in employees:
         ws.append(employee)
 
+    # Add cell comments to exercise singer-encodings comment preservation.
+    # singer_encodings returns commented cells as:
+    #   [{"text": <value>, "comment": {"text": "...", "excel_author": "..."}}]
+    ws['A2'].comment = Comment("Primary key field", "QA")
+    ws['D3'].comment = Comment("Department is source-system maintained", "QA")
+    ws['F2'].comment = Comment("Annual salary in USD", "QA")
+
     # Save the workbook
     wb.save(excel_path)
 
     print(f"Created {excel_path}")
     print(f"  - 10 employee records")
+    print(f"  - Cell comments on A2, D3, F2")
     print(f"  - Columns: {', '.join(headers)}")
+
 
 if __name__ == "__main__":
     try:

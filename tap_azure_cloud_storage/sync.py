@@ -33,8 +33,8 @@ def sync_stream(config, state, table_spec, stream, sync_start_time):
         singer.get_bookmark(state, table_name, 'modified_since') or config['start_date']
     )
 
-    LOGGER.info('Syncing table "%s".', table_name)
-    LOGGER.info('Getting files modified since %s.', modified_since)
+    LOGGER.info("Syncing table \"%s\".", table_name)
+    LOGGER.info("Getting files modified since %s.", modified_since)
 
     # Reset skipped files counter for this stream to get accurate per-stream counts
     azure_storage.skipped_files_count = 0
@@ -62,7 +62,7 @@ def sync_table_file(config, blob_path, table_spec, stream):
     extension = blob_path.split(".")[-1].lower()
 
     if not extension or blob_path.lower() == extension:
-        LOGGER.warning('"%s" without extension will not be synced.', blob_path)
+        LOGGER.warning("\"%s\" without extension will not be synced.", blob_path)
         azure_storage.skipped_files_count = azure_storage.skipped_files_count + 1
         return 0
     try:
@@ -72,7 +72,7 @@ def sync_table_file(config, blob_path, table_spec, stream):
             return sync_compressed_file(config, blob_path, table_spec, stream)
         if extension in ["csv", "jsonl", "txt", "tsv", "psv", "parquet", "avro", "xlsx"]:
             return handle_file(config, blob_path, table_spec, stream, extension)
-        LOGGER.warning('"%s" having the ".%s" extension will not be synced.', blob_path, extension)
+        LOGGER.warning("\"%s\" having the \".%s\" extension will not be synced.", blob_path, extension)
     except (UnicodeDecodeError, json.decoder.JSONDecodeError):
         LOGGER.warning("Skipping %s file as parsing failed. Verify an extension of the file.", blob_path)
         azure_storage.skipped_files_count = azure_storage.skipped_files_count + 1
@@ -80,11 +80,6 @@ def sync_table_file(config, blob_path, table_spec, stream):
 
 
 def handle_file(config, blob_path, table_spec, stream, extension, file_handler=None):
-    if not extension or blob_path.lower() == extension:
-        LOGGER.warning('"%s" without extension will not be synced.', blob_path)
-        azure_storage.skipped_files_count = azure_storage.skipped_files_count + 1
-        return 0
-
     # Check if file is gzipped despite non-gz extension (magic bytes: 1f 8b)
     # This handles files like gz_stored_as_csv.csv which are gzipped but have .csv extension
     if extension in ["csv", "txt", "tsv", "psv", "jsonl"] and not file_handler:
@@ -96,7 +91,7 @@ def handle_file(config, blob_path, table_spec, stream, extension, file_handler=N
             file_handle.close()
 
             if len(peek_data) >= 2 and peek_data[0] == 0x1f and peek_data[1] == 0x8b:
-                LOGGER.info('Detected gzipped content in "%s" despite .%s extension, treating as gz file', blob_path, extension)
+                LOGGER.info("Detected gzipped content in \"%s\" despite .%s extension, treating as gz file", blob_path, extension)
                 # Treat as a gz file instead
                 return sync_gz_file(config, blob_path, table_spec, stream)
 
@@ -142,10 +137,10 @@ def handle_file(config, blob_path, table_spec, stream, extension, file_handler=N
             records = sync_jsonl_file(config, iterator, blob_path, table_spec, stream)
             if records == 0:
                 azure_storage.skipped_files_count = azure_storage.skipped_files_count + 1
-                LOGGER.warning('Skipping "%s" file as it is empty', blob_path)
+                LOGGER.warning("Skipping \"%s\" file as it is empty", blob_path)
             return records
 
-        if extension == "xlsx":
+        if extension in ["xlsx"]:
             # Excel file handling
             if file_handle is None:
                 file_handle = azure_storage.get_file_handle(config, blob_path)
@@ -158,12 +153,12 @@ def handle_file(config, blob_path, table_spec, stream, extension, file_handler=N
             # If file_handler is provided, it means we're inside a compressed file already
             # Skip nested compression to prevent infinite loops
             if file_handler:
-                LOGGER.warning('Skipping "%s" file as it contains nested compression.', blob_path)
+                LOGGER.warning("Skipping \"%s\" file as it contains nested compression.", blob_path)
                 azure_storage.skipped_files_count = azure_storage.skipped_files_count + 1
                 return 0
             return sync_compressed_file(config, blob_path, table_spec, stream)
 
-        LOGGER.warning('"%s" having the ".%s" extension will not be synced.', blob_path, extension)
+        LOGGER.warning("\"%s\" having the \".%s\" extension will not be synced.", blob_path, extension)
         azure_storage.skipped_files_count = azure_storage.skipped_files_count + 1
         return 0
     finally:
@@ -172,7 +167,7 @@ def handle_file(config, blob_path, table_spec, stream, extension, file_handler=N
             try:
                 file_handle.close()
             except Exception as e:
-                LOGGER.debug('Failed to close file handle for "%s": %s', blob_path, e)
+                LOGGER.warning("Failed to close file handle for \"%s\": %s", blob_path, e)
 
 
 def sync_gz_file(config, blob_path, table_spec, stream, file_handler=None):
@@ -195,13 +190,13 @@ def sync_gz_file(config, blob_path, table_spec, stream, file_handler=None):
         except (AttributeError, OSError) as err:
             # If a file is compressed using gzip command with --no-name attribute,
             # It will not return the file name and timestamp. Hence we will skip such files.
-            LOGGER.warning('Skipping "%s" file as we did not get the original file name', blob_path)
+            LOGGER.warning("Skipping \"%s\" file as we did not get the original file name", blob_path)
             azure_storage.skipped_files_count = azure_storage.skipped_files_count + 1
             return 0
 
         if gz_file_name:
             if gz_file_name.endswith(".gz"):
-                LOGGER.warning('Skipping "%s" file as it contains nested compression.', blob_path)
+                LOGGER.warning("Skipping \"%s\" file as it contains nested compression.", blob_path)
                 azure_storage.skipped_files_count = azure_storage.skipped_files_count + 1
                 return 0
 
@@ -226,7 +221,7 @@ def sync_gz_file(config, blob_path, table_spec, stream, file_handler=None):
                 # Ensure the gzip wrapper is closed after use.
                 gz_file_obj.close()
 
-        LOGGER.warning('Skipping "%s" file - no filename found in gzip header', blob_path)
+        LOGGER.warning("Skipping \"%s\" file - no filename found in gzip header", blob_path)
         azure_storage.skipped_files_count = azure_storage.skipped_files_count + 1
         return 0
     finally:
@@ -236,10 +231,10 @@ def sync_gz_file(config, blob_path, table_spec, stream, file_handler=None):
                 file_object.close()
             except Exception:
                 # Swallow any exception during close to avoid masking the original error.
-                LOGGER.debug('Failed to close file handle for "%s"', blob_path)
+                LOGGER.warning("Failed to close file handle for \"%s\"", blob_path)
 def sync_compressed_file(config, blob_path, table_spec, stream):
     """Handle .zip files by extracting and syncing contents."""
-    LOGGER.info('Syncing Compressed file "%s".', blob_path)
+    LOGGER.info("Syncing Compressed file \"%s\".", blob_path)
 
     records_streamed = 0
     # Use adlfs for streaming compressed files
@@ -272,7 +267,7 @@ def sync_compressed_file(config, blob_path, table_spec, stream):
 
 
 def sync_csv_file(config, file_handle, blob_path, table_spec, stream):
-    LOGGER.info('Syncing file "%s".', blob_path)
+    LOGGER.info("Syncing file \"%s\".", blob_path)
 
     container = config['container_name']
     table_name = table_spec['table_name']
@@ -319,14 +314,14 @@ def sync_csv_file(config, file_handle, blob_path, table_spec, stream):
             singer.write_record(table_name, to_write)
             records_synced += 1
     else:
-        LOGGER.warning('Skipping "%s" file as it is empty', blob_path)
+        LOGGER.warning("Skipping \"%s\" file as it is empty", blob_path)
         azure_storage.skipped_files_count = azure_storage.skipped_files_count + 1
 
     return records_synced
 
 
 def sync_avro_parquet_file(config, iterator, blob_path, table_spec, stream):
-    LOGGER.info('Syncing file "%s".', blob_path)
+    LOGGER.info("Syncing file \"%s\".", blob_path)
 
     container = config['container_name']
     table_name = table_spec['table_name']
@@ -349,7 +344,7 @@ def sync_avro_parquet_file(config, iterator, blob_path, table_spec, stream):
             singer.write_record(table_name, to_write)
             records_synced += 1
     else:
-        LOGGER.warning('Skipping "%s" file as it is empty', blob_path)
+        LOGGER.warning("Skipping \"%s\" file as it is empty", blob_path)
         azure_storage.skipped_files_count = azure_storage.skipped_files_count + 1
 
     return records_synced
@@ -366,7 +361,7 @@ def sync_parquet_file(config, file_handle, blob_path, table_spec, stream):
 
 
 def sync_jsonl_file(config, iterator, blob_path, table_spec, stream):
-    LOGGER.info('Syncing file "%s".', blob_path)
+    LOGGER.info("Syncing file \"%s\".", blob_path)
 
     container = config['container_name']
     table_name = table_spec['table_name']
@@ -407,7 +402,7 @@ def sync_jsonl_file(config, iterator, blob_path, table_spec, stream):
 
 def sync_excel_file(config, file_handle, blob_path, table_spec, stream):
     """Sync Excel (.xlsx) files."""
-    LOGGER.info('Syncing Excel file "%s".', blob_path)
+    LOGGER.info("Syncing Excel file \"%s\".", blob_path)
 
     container = config['container_name']
     table_name = table_spec['table_name']
@@ -420,12 +415,12 @@ def sync_excel_file(config, file_handle, blob_path, table_spec, stream):
         }
         iterator = excel_reader.get_excel_row_iterator(file_handle, options=options)
     except Exception as e:
-        LOGGER.warning('Failed to read Excel file %s: %s', blob_path, e)
+        LOGGER.warning("Failed to read Excel file %s: %s", blob_path, e)
         azure_storage.skipped_files_count = azure_storage.skipped_files_count + 1
         return 0
 
     if iterator is None:
-        LOGGER.warning('Skipping "%s" file as it is empty', blob_path)
+        LOGGER.warning("Skipping \"%s\" file as it is empty", blob_path)
         azure_storage.skipped_files_count = azure_storage.skipped_files_count + 1
         return 0
 
@@ -433,6 +428,10 @@ def sync_excel_file(config, file_handle, blob_path, table_spec, stream):
     for sheet_name, row_dict in iterator:
         if not isinstance(row_dict, dict) or len(row_dict) == 0:
             continue
+
+        # Unwrap singer-encodings commented cell wrappers so that
+        # the Transformer receives plain values instead of list-of-dict.
+        row_dict = azure_storage.unwrap_excel_commented_cells(row_dict)
 
         custom_columns = {
             azure_storage.SDC_SOURCE_CONTAINER_COLUMN: container,

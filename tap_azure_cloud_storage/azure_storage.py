@@ -30,6 +30,35 @@ SDC_SOURCE_FILE_COLUMN = "_sdc_source_file"
 SDC_SOURCE_LINENO_COLUMN = "_sdc_source_lineno"
 SDC_EXTRA_COLUMN = "_sdc_extra"
 
+
+def unwrap_excel_commented_cells(row_dict):
+    """Unwrap singer-encodings commented/hyperlinked cell values.
+
+    singer_encodings wraps cells that carry a comment or hyperlink as::
+
+        [{"text": <value>, "comment": {...}}]
+
+    This helper extracts the plain ``text`` value so that downstream
+    schema inference and the Singer Transformer see the real data type
+    instead of a list.
+    """
+    unwrapped = {}
+    for key, value in row_dict.items():
+        if (
+            isinstance(value, list)
+            and len(value) == 1
+            and isinstance(value[0], dict)
+            and 'text' in value[0]
+        ):
+            unwrapped[key] = value[0]['text']
+        else:
+            unwrapped[key] = value
+    return unwrapped
+
+DEFAULT_SAMPLE_RATE = 5
+DEFAULT_MAX_RECORDS = 1000
+DEFAULT_MAX_FILES = 5
+
 def _read_exact(fp, n):
     """Read exactly n bytes from file pointer.
     Helper function for reading gzip headers.
@@ -102,12 +131,12 @@ def setup_azure_client(config):
     global fs
     if fs is None:
         try:
-            LOGGER.info('Creating Azure filesystem client using adlfs')
+            LOGGER.info("Creating Azure filesystem client using adlfs")
             storage_account_name = config.get('storage_account_name')
 
             # Build authentication parameters based on available credentials
             if config.get('client_id') and config.get('client_secret') and config.get('tenant_id'):
-                LOGGER.info('Using Service Principal authentication')
+                LOGGER.info("Using Service Principal authentication")
                 fs = adlfs.AzureBlobFileSystem(
                     account_name=storage_account_name,
                     tenant_id=config['tenant_id'],
@@ -115,19 +144,19 @@ def setup_azure_client(config):
                     client_secret=config['client_secret']
                 )
             elif config.get('connection_string'):
-                LOGGER.info('Using Connection String authentication')
+                LOGGER.info("Using Connection String authentication")
                 fs = adlfs.AzureBlobFileSystem(
                     connection_string=config['connection_string']
                 )
             elif config.get('account_key'):
-                LOGGER.info('Using Account Key authentication')
+                LOGGER.info("Using Account Key authentication")
                 fs = adlfs.AzureBlobFileSystem(
                     account_name=storage_account_name,
                     account_key=config['account_key']
                 )
             else:
                 # Use default credential (managed identity)
-                LOGGER.info('Using Default Azure Credential (managed identity)')
+                LOGGER.info("Using Default Azure Credential (managed identity)")
                 fs = adlfs.AzureBlobFileSystem(
                     account_name=storage_account_name
                 )
@@ -212,7 +241,7 @@ def get_input_files_for_table(config, table_spec, modified_since=None):
     for blob in _iter_matching_blobs(config, table_spec):
         last_modified = getattr(blob, 'last_modified', None)
         if not last_modified:
-            LOGGER.debug('Skipping blob "%s" - no last_modified timestamp', blob.name)
+            LOGGER.warning("Skipping blob \"%s\" - no last_modified timestamp", blob.name)
             continue
 
         if modified_since is None or last_modified >= modified_since:
@@ -220,10 +249,10 @@ def get_input_files_for_table(config, table_spec, modified_since=None):
             yield {'key': blob.name, 'last_modified': last_modified}
 
     if matched_files_count == 0:
-        LOGGER.warning('No files found matching pattern "%s" modified since %s',
+        LOGGER.warning("No files found matching pattern \"%s\" modified since %s",
                       pattern, modified_since)
 
-def _get_records_for_csv(blob_path, sample_rate, buffer, table_spec, max_records=1000):
+def _get_records_for_csv(blob_path, sample_rate, buffer, table_spec, max_records=DEFAULT_MAX_RECORDS):
     current_row = 0
     sampled_row_count = 0
     try:
@@ -248,7 +277,7 @@ def _get_records_for_csv(blob_path, sample_rate, buffer, table_spec, max_records
     except Exception as e:
         LOGGER.error("Error sampling CSV file %s: %s", blob_path, e, exc_info=True)
 
-def _get_records_for_jsonl(sample_rate, data_bytes, max_records=1000):
+def _get_records_for_jsonl(sample_rate, data_bytes, max_records=DEFAULT_MAX_RECORDS):
     current_row = 0
     sampled_count = 0
     for row in singer_jsonl.get_row_iterator(io.BytesIO(data_bytes)):
@@ -259,7 +288,7 @@ def _get_records_for_jsonl(sample_rate, data_bytes, max_records=1000):
                 break
         current_row += 1
 
-def _get_records_for_json(sample_rate, data_bytes, max_records=1000):
+def _get_records_for_json(sample_rate, data_bytes, max_records=DEFAULT_MAX_RECORDS):
     try:
         loaded = json.loads(data_bytes.decode('utf-8'))
     except Exception:
@@ -276,7 +305,7 @@ def _get_records_for_json(sample_rate, data_bytes, max_records=1000):
         # Single JSON object; yield as one sample
         yield loaded
 
-def _get_records_for_parquet(sample_rate, data_bytes, max_records=1000):
+def _get_records_for_parquet(sample_rate, data_bytes, max_records=DEFAULT_MAX_RECORDS):
     row_idx = 0
     sampled_count = 0
     for row in singer_parquet.get_row_iterator(io.BytesIO(data_bytes)):
@@ -287,7 +316,7 @@ def _get_records_for_parquet(sample_rate, data_bytes, max_records=1000):
                 break
         row_idx += 1
 
-def _get_records_for_avro(sample_rate, data_bytes, max_records=1000):
+def _get_records_for_avro(sample_rate, data_bytes, max_records=DEFAULT_MAX_RECORDS):
     sampled_count = 0
     for idx, record in enumerate(singer_avro.get_row_iterator(io.BytesIO(data_bytes))):
         if (idx % sample_rate) == 0 and isinstance(record, dict):
@@ -296,7 +325,7 @@ def _get_records_for_avro(sample_rate, data_bytes, max_records=1000):
             if max_records is not None and sampled_count >= max_records:
                 break
 
-def sample_file(table_spec, blob_path, data, sample_rate, extension, max_records=1000):
+def sample_file(table_spec, blob_path, data, sample_rate, extension, max_records=DEFAULT_MAX_RECORDS):
     """
     Sample records from a single file based on its extension.
 
@@ -335,7 +364,7 @@ def sample_file(table_spec, blob_path, data, sample_rate, extension, max_records
         yield from _get_records_for_parquet(sample_rate, data, max_records)
     elif extension == 'avro':
         yield from _get_records_for_avro(sample_rate, data, max_records)
-    elif extension == 'xlsx':
+    elif extension in ['xlsx']:
         # Excel files will be handled by singer_encodings.excel_reader
         try:
             from singer_encodings import excel_reader
@@ -349,26 +378,26 @@ def sample_file(table_spec, blob_path, data, sample_rate, extension, max_records
             )
             if iterator is None:
                 # Empty Excel file
-                LOGGER.warning('Skipping "%s" file as it is empty', blob_path)
+                LOGGER.warning("Skipping \"%s\" file as it is empty", blob_path)
                 skipped_files_count += 1
                 return
 
             idx = 0
             for sheet_name, row_dict in iterator:
                 if (idx % sample_rate) == 0 and isinstance(row_dict, dict):
-                    yield row_dict
+                    yield unwrap_excel_commented_cells(row_dict)
                     if max_records is not None and idx >= max_records * sample_rate:
                         break
                 idx += 1
         except Exception as e:
-            LOGGER.warning('Failed to sample Excel file %s: %s', blob_path, e)
+            LOGGER.warning("Failed to sample Excel file %s: %s", blob_path, e)
             skipped_files_count += 1
     else:
-        LOGGER.warning('"%s" with unsupported extension ".%s" will not be sampled.', blob_path, extension)
+        LOGGER.warning("\"%s\" with unsupported extension \".%s\" will not be sampled.", blob_path, extension)
         skipped_files_count += 1
         return []
 
-def sampling_gz_file(table_spec, blob_path, data, sample_rate, max_records=1000):
+def sampling_gz_file(table_spec, blob_path, data, sample_rate, max_records=DEFAULT_MAX_RECORDS):
     """
     Handle sampling of .gz compressed files.
 
@@ -385,7 +414,7 @@ def sampling_gz_file(table_spec, blob_path, data, sample_rate, max_records=1000)
     global skipped_files_count
 
     if blob_path.endswith('.tar.gz'):
-        LOGGER.warning('Skipping "%s" file as .tar.gz extension is not supported', blob_path)
+        LOGGER.warning("Skipping \"%s\" file as .tar.gz extension is not supported", blob_path)
         skipped_files_count += 1
         return []
 
@@ -397,12 +426,12 @@ def sampling_gz_file(table_spec, blob_path, data, sample_rate, max_records=1000)
         try:
             gz_file_name = get_file_name_from_gzfile(fileobj=io.BytesIO(data))
         except (AttributeError, OSError):
-            LOGGER.warning('Skipping "%s" - could not get original file name from gzip header', blob_path)
+            LOGGER.warning("Skipping \"%s\" - could not get original file name from gzip header", blob_path)
             skipped_files_count += 1
             return []
 
         if not gz_file_name:
-            LOGGER.warning('Skipping "%s" - no filename found in gzip header', blob_path)
+            LOGGER.warning("Skipping \"%s\" - no filename found in gzip header", blob_path)
             skipped_files_count += 1
             return []
 
@@ -410,7 +439,7 @@ def sampling_gz_file(table_spec, blob_path, data, sample_rate, max_records=1000)
 
         # Check for nested compression
         if gz_lower.endswith('.gz'):
-            LOGGER.warning('Skipping "%s" - nested compression not supported', blob_path)
+            LOGGER.warning("Skipping \"%s\" - nested compression not supported", blob_path)
             skipped_files_count += 1
             return []
 
@@ -419,11 +448,11 @@ def sampling_gz_file(table_spec, blob_path, data, sample_rate, max_records=1000)
         return sample_file(table_spec, full_path, gz_data, sample_rate, gz_extension, max_records)
 
     except Exception as e:
-        LOGGER.warning('Failed to process GZ file %s: %s', blob_path, e)
+        LOGGER.warning("Failed to process GZ file %s: %s", blob_path, e)
         skipped_files_count += 1
         return []
 
-def sampling_zip_file(table_spec, blob_path, data, sample_rate, max_records=1000):
+def sampling_zip_file(table_spec, blob_path, data, sample_rate, max_records=DEFAULT_MAX_RECORDS):
     """
     Handle sampling of .zip compressed files.
 
@@ -449,7 +478,7 @@ def sampling_zip_file(table_spec, blob_path, data, sample_rate, max_records=1000
 
             # Skip nested compressed files
             if de_extension in ['zip', 'gz', 'tar']:
-                LOGGER.warning('Skipping "%s/%s" - nested compression not supported for sampling', blob_path, de_name)
+                LOGGER.warning("Skipping \"%s/%s\" - nested compression not supported for sampling", blob_path, de_name)
                 skipped_files_count += 1
                 continue
 
@@ -461,7 +490,7 @@ def sampling_zip_file(table_spec, blob_path, data, sample_rate, max_records=1000
                 yield record
 
     except Exception as e:
-        LOGGER.warning('Failed to process ZIP file %s: %s', blob_path, e)
+        LOGGER.warning("Failed to process ZIP file %s: %s", blob_path, e)
         skipped_files_count += 1
 
 def get_files_to_sample(config, azure_files, max_files):
@@ -483,7 +512,7 @@ def get_files_to_sample(config, azure_files, max_files):
     try:
         fs_client = setup_azure_client(config)
     except Exception as e:
-        LOGGER.error('Failed to setup Azure client: %s', e)
+        LOGGER.error("Failed to setup Azure client: %s", e)
         return []
 
     for azure_file in azure_files:
@@ -499,7 +528,7 @@ def get_files_to_sample(config, azure_files, max_files):
             with fs_client.open(f'{container_name}/{file_key}', 'rb') as f:
                 data = f.read()
         except Exception as e:
-            LOGGER.warning('Skipping %s due to download error: %s', file_key, e)
+            LOGGER.warning("Skipping %s due to download error: %s", file_key, e)
             skipped_files_count += 1
             continue
 
@@ -508,7 +537,7 @@ def get_files_to_sample(config, azure_files, max_files):
 
         # Check if file is without extension
         if '.' not in file_name or lower_name == file_name.split('.')[-1]:
-            LOGGER.warning('"%s" without extension will not be sampled.', file_key)
+            LOGGER.warning("\"%s\" without extension will not be sampled.", file_key)
             skipped_files_count += 1
             continue
 
@@ -524,7 +553,7 @@ def get_files_to_sample(config, azure_files, max_files):
                 gz_file_obj = gzip.GzipFile(fileobj=io.BytesIO(data))
                 data = gz_file_obj.read()
             except Exception as e:
-                LOGGER.warning('Failed to decompress gzipped file %s: %s', file_key, e)
+                LOGGER.warning("Failed to decompress gzipped file %s: %s", file_key, e)
                 skipped_files_count += 1
                 continue
 
@@ -536,7 +565,13 @@ def get_files_to_sample(config, azure_files, max_files):
 
     return sampled_files
 
-def sample_files(config, table_spec, azure_files, sample_rate=5, max_records=1000, max_files=5):
+def sample_files(
+    config,
+    table_spec,
+    azure_files,
+    sample_rate=DEFAULT_SAMPLE_RATE,
+    max_records=DEFAULT_MAX_RECORDS,
+    max_files=DEFAULT_MAX_FILES):
     """
     Sample records from multiple Azure blob files.
 
@@ -559,7 +594,7 @@ def sample_files(config, table_spec, azure_files, sample_rate=5, max_records=100
         data = azure_file.get('data')
         extension = azure_file.get('extension')
 
-        LOGGER.info('Sampling %s (max records: %s, sample rate: %s)',
+        LOGGER.info("Sampling %s (max records: %s, sample rate: %s)",
                     blob_path, max_records, sample_rate)
 
         try:
@@ -579,19 +614,6 @@ def sample_files(config, table_spec, azure_files, sample_rate=5, max_records=100
                 try:
                     for record in gen:
                         sample_count += 1
-                        if sample_count <= 3:  # Log first few samples (redacted)
-                            if isinstance(record, dict):
-                                LOGGER.debug(
-                                    "Sample record %d retrieved (type=dict, keys=%s)",
-                                    sample_count,
-                                    list(record.keys()),
-                                )
-                            else:
-                                LOGGER.debug(
-                                    "Sample record %d retrieved (type=%s)",
-                                    sample_count,
-                                    type(record).__name__,
-                                )
                         yield record
                     LOGGER.info("Generator exhausted after %d records", sample_count)
                 except StopIteration as e:
@@ -605,12 +627,12 @@ def sample_files(config, table_spec, azure_files, sample_rate=5, max_records=100
         except (UnicodeDecodeError, json.JSONDecodeError) as e:
             LOGGER.warning("Skipping %s file as parsing failed: %s. Verify the extension of the file.", blob_path, e)
             skipped_files_count += 1
-        except Exception as e:
-            LOGGER.error("Unexpected error sampling %s: %s", blob_path, e, exc_info=True)
+        except (OSError, EOFError, ValueError, TypeError, struct.error) as e:
+            LOGGER.warning("Skipping %s file due to recoverable sampling error: %s", blob_path, e, exc_info=True)
             skipped_files_count += 1
 
 def get_sampled_schema_for_table(config, table_spec):
-    LOGGER.info('Sampling records to determine table schema for table "%s".', table_spec.get('table_name'))
+    LOGGER.info("Sampling records to determine table schema for table \"%s\".", table_spec.get('table_name'))
     global skipped_files_count
     skipped_files_count = 0
 
@@ -619,7 +641,7 @@ def get_sampled_schema_for_table(config, table_spec):
 
     if not azure_files_list:
         # No files matched the spec at all
-        LOGGER.info('No files found for table "%s"', table_spec.get('table_name'))
+        LOGGER.info("No files found for table \"%s\"", table_spec.get('table_name'))
         return None
 
     samples = [sample for sample in sample_files(config, table_spec, iter(azure_files_list))]

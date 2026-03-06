@@ -452,27 +452,33 @@ class TestExcelHyperlinks(unittest.TestCase):
 
 
 class TestExcelComments(unittest.TestCase):
-    """Test Excel file handling with cell comments/notes"""
+    """Test Excel file handling with cell comments/notes.
+
+    singer_encodings wraps cells that carry a comment as:
+        [{"text": <value>, "comment": {"text": "...", "excel_author": "..."}}]
+
+    The tap unwraps these via ``unwrap_excel_commented_cells()`` so that
+    the Transformer and downstream consumers receive plain scalar values.
+    """
 
     @patch('tap_azure_cloud_storage.sync.singer.write_record')
     @patch('singer_encodings.excel_reader.get_excel_row_iterator')
     def test_sync_excel_file_with_comments(self, mock_get_iterator, mock_write_record):
-        """Test that Excel cells with comments are synced (comments are typically ignored)"""
+        """Test that commented cells are unwrapped to plain values during sync"""
         from tap_azure_cloud_storage.sync import sync_excel_file
 
-        # Mock records where cells have comments attached
-        # Excel reader typically extracts cell values, not comments
+        # singer_encodings returns commented cells wrapped in list-of-dict
         mock_iterator = [
             ('Sheet1', {
-                'employee_id': 1,
+                'employee_id': [{'text': 1, 'comment': {'text': 'Primary key field', 'excel_author': 'QA'}}],
                 'name': 'Alice Johnson',
-                'status': 'Active',  # Cell has comment: "Promoted on 2024-01-15"
-                'salary': 95000  # Cell has comment: "Includes performance bonus"
+                'status': 'Active',
+                'salary': [{'text': 95000, 'comment': {'text': 'Annual salary in USD', 'excel_author': 'QA'}}]
             }),
             ('Sheet1', {
                 'employee_id': 2,
                 'name': 'Bob Smith',
-                'status': 'On Leave',  # Cell has comment: "Medical leave until Feb 2024"
+                'status': 'On Leave',
                 'salary': 85000
             }),
         ]
@@ -486,31 +492,31 @@ class TestExcelComments(unittest.TestCase):
 
         records_synced = sync_excel_file(config, file_handle, blob_path, table_spec, stream)
 
-        # Should sync both records (comments don't affect sync)
         self.assertEqual(records_synced, 2)
 
-        # Verify cell values are extracted (not comments)
-        first_call = mock_write_record.call_args_list[0]
-        first_record = first_call[0][1]
-        self.assertEqual(first_record['status'], 'Active')
+        # First record: commented cells are unwrapped to plain values
+        first_record = mock_write_record.call_args_list[0][0][1]
+        self.assertEqual(first_record['employee_id'], 1)
         self.assertEqual(first_record['salary'], 95000)
+        self.assertEqual(first_record['name'], 'Alice Johnson')
 
-        second_call = mock_write_record.call_args_list[1]
-        second_record = second_call[0][1]
+        # Second record: no comments, plain scalar values unchanged
+        second_record = mock_write_record.call_args_list[1][0][1]
+        self.assertEqual(second_record['employee_id'], 2)
         self.assertEqual(second_record['status'], 'On Leave')
+        self.assertEqual(second_record['salary'], 85000)
 
     @patch('tap_azure_cloud_storage.sync.singer.write_record')
     @patch('singer_encodings.excel_reader.get_excel_row_iterator')
-    def test_excel_comments_do_not_affect_cell_values(self, mock_get_iterator, mock_write_record):
-        """Test that cell comments don't interfere with extracting cell values"""
+    def test_excel_comments_preserve_value_and_metadata(self, mock_get_iterator, mock_write_record):
+        """Test that unwrapping extracts the correct plain value from comment wrapper"""
         from tap_azure_cloud_storage.sync import sync_excel_file
 
-        # Mock records showing comments don't affect actual values
         mock_iterator = [
             ('DataSheet', {
                 'metric_id': 'M001',
                 'metric_name': 'Revenue',
-                'value': 1500000,  # Comment: "Target: 2M by Q4"
+                'value': [{'text': 1500000, 'comment': {'text': 'Target: 2M by Q4', 'excel_author': 'Finance'}}],
                 'unit': 'USD'
             }),
         ]
@@ -526,19 +532,23 @@ class TestExcelComments(unittest.TestCase):
 
         self.assertEqual(records_synced, 1)
 
-        # The numeric value should be extracted correctly despite comment
         written_record = mock_write_record.call_args[0][1]
+        # Commented cell is unwrapped to the plain value
         self.assertEqual(written_record['value'], 1500000)
+        # Non-commented cells stay scalar
         self.assertEqual(written_record['metric_name'], 'Revenue')
 
     @patch('singer_encodings.excel_reader.get_excel_row_iterator')
     def test_sample_excel_with_comments(self, mock_get_iterator):
-        """Test that sampling Excel files with cell comments works correctly"""
+        """Test that sampling unwraps commented cells to plain values"""
         from tap_azure_cloud_storage import azure_storage
 
-        # Mock sampling where cells have comments
         mock_iterator = [
-            ('Notes', {'id': 1, 'description': 'Project Alpha', 'priority': 'High'}),
+            ('Notes', {
+                'id': [{'text': 1, 'comment': {'text': 'Auto-generated ID', 'excel_author': 'System'}}],
+                'description': 'Project Alpha',
+                'priority': 'High'
+            }),
             ('Notes', {'id': 2, 'description': 'Project Beta', 'priority': 'Medium'}),
             ('Notes', {'id': 3, 'description': 'Project Gamma', 'priority': 'Low'}),
         ]
@@ -549,25 +559,26 @@ class TestExcelComments(unittest.TestCase):
             table_spec, 'projects.xlsx', b'data', 1, 'xlsx', 1000
         ))
 
-        # All records should be sampled successfully
         self.assertEqual(len(records), 3)
-        # Cell values should be extracted correctly
+        # First record: commented id is unwrapped to plain int
+        self.assertEqual(records[0]['id'], 1)
         self.assertEqual(records[0]['description'], 'Project Alpha')
-        self.assertEqual(records[1]['priority'], 'Medium')
+        # Remaining records are plain
+        self.assertEqual(records[1]['id'], 2)
+        self.assertEqual(records[2]['priority'], 'Low')
 
     @patch('tap_azure_cloud_storage.sync.singer.write_record')
     @patch('singer_encodings.excel_reader.get_excel_row_iterator')
     def test_excel_with_rich_text_comments(self, mock_get_iterator, mock_write_record):
-        """Test that Excel cells with formatted/rich text comments sync correctly"""
+        """Test that cells with threaded/rich text comments are unwrapped correctly"""
         from tap_azure_cloud_storage.sync import sync_excel_file
 
-        # Mock records with cells that might have rich text comments
         mock_iterator = [
             ('Sheet1', {
                 'task_id': 'T001',
                 'task_name': 'Design Review',
-                'assigned_to': 'Alice',  # Comment with bold/italic formatting
-                'due_date': '2024-03-15'  # Comment with colored text
+                'assigned_to': [{'text': 'Alice', 'comment': {'text': 'Lead reviewer', 'excel_author': 'PM'}}],
+                'due_date': '2024-03-15'
             }),
         ]
         mock_get_iterator.return_value = iter(mock_iterator)
@@ -580,12 +591,12 @@ class TestExcelComments(unittest.TestCase):
 
         records_synced = sync_excel_file(config, file_handle, blob_path, table_spec, stream)
 
-        # Should sync successfully regardless of comment formatting
         self.assertEqual(records_synced, 1)
 
-        # Cell values should be plain text
         written_record = mock_write_record.call_args[0][1]
+        # Commented cell is unwrapped to plain value
         self.assertEqual(written_record['assigned_to'], 'Alice')
+        # Non-commented cell unchanged
         self.assertEqual(written_record['due_date'], '2024-03-15')
 
 
