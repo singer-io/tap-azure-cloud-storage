@@ -103,9 +103,12 @@ class AzureCloudStorageExcelTest(AzureCloudStorageBaseTest):
                     self.assertIn('_sdc_source_lineno', record,
                                 msg="Missing _sdc_source_lineno in record")
 
-                    # Verify _sdc_source_file includes sheet name
-                    self.assertIn('/Employees', record['_sdc_source_file'],
-                                msg="_sdc_source_file should include sheet name")
+                    # Verify _sdc_source_file includes the sheet context
+                    source_file = record['_sdc_source_file']
+                    self.assertTrue(
+                        source_file.endswith('/Employees') or source_file.endswith('Employees'),
+                        msg="_sdc_source_file should include Employees sheet context"
+                    )
 
                 # Verify sample employee data
                 employee_ids = [msg['data']['employee_id'] for msg in upsert_messages]

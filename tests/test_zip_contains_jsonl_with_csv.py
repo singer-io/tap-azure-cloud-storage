@@ -19,10 +19,10 @@ class AzureCloudStorageCompressedZipFileJSONLCSV(AzureCloudStorageBaseTest):
     ]
 
     def setUp(self):
-        delete_and_push_file(self.get_properties(), self.resource_names(), None)
+        delete_and_push_file(self.get_properties(), self.resource_name(), None)
         self.conn_id = connections.ensure_connection(self)
 
-    def resource_names(self):
+    def resource_name(self):
         return ["jsonl_csv.zip"]
 
     def name(self):

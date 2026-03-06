@@ -171,17 +171,6 @@ def cmd_delete(args):
             print(f"Deleting all content under: {search_path}")
             fs_client.rm(search_path, recursive=True)
 
-            # Also try to remove the directory marker itself if it exists
-            # (needed for hierarchical namespace / ADLS Gen2)
-            if prefix and not prefix.endswith('/'):
-                dir_marker = f"{container_name}/{prefix}"
-                try:
-                    if fs_client.exists(dir_marker):
-                        print(f"Removing directory marker: {prefix}")
-                        fs_client.rm(dir_marker)
-                except Exception:
-                    pass  # Ignore if marker doesn't exist or can't be deleted
-
             print("Delete complete.")
         except FileNotFoundError:
             print("No blobs found under prefix.")

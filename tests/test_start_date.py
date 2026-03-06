@@ -104,16 +104,14 @@ class AzureCloudStorageStartDateTest(AzureCloudStorageBaseTest):
                 upsert_messages = [msg for msg in messages['messages'] if msg['action'] == 'upsert']
 
                 # Verify records are from the file uploaded after start_date
-                # Note: Due to Azure's behavior, both files might be synced if their
-                # timestamps are very close or if Azure updates metadata during access.
-                # We verify that at least records from start_date_2.csv are present.
                 record_count = len(upsert_messages)
                 print(f"Synced {record_count} records for {stream}")
 
-                # The second file should have at least 1 record
-                # Allow for the possibility that both files are synced (due to timing)
-                self.assertGreaterEqual(record_count, 1,
-                                      msg="Expected at least records from the second file")
+                self.assertEqual(
+                    record_count,
+                    4,
+                    msg="Expected exactly 4 records with inclusive start_date filtering, got {}".format(record_count)
+                )
 
                 # Verify all records have the required _sdc fields
                 for msg in upsert_messages:
@@ -130,8 +128,11 @@ class AzureCloudStorageStartDateTest(AzureCloudStorageBaseTest):
 
                 print(f"Files synced: {synced_files}")
 
-                # Verify that start_date_2.csv was definitely synced
-                self.assertTrue(
-                    any('start_date_2.csv' in f for f in synced_files),
-                    msg="Expected start_date_2.csv to be synced"
+                self.assertSetEqual(
+                    synced_files,
+                    {
+                        'tap_azure_tester/start_date/start_date_1.csv',
+                        'tap_azure_tester/start_date/start_date_2.csv'
+                    },
+                    msg="Expected both start_date files to be synced with inclusive filtering, found {}".format(synced_files)
                 )

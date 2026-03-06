@@ -1,8 +1,5 @@
 from tap_tester import connections, menagerie, runner
 from functools import reduce
-from singer import metadata
-import json
-import os
 import time
 
 from base import AzureCloudStorageBaseTest
@@ -101,12 +98,22 @@ class AzureCloudStorageBookmarks(AzureCloudStorageBaseTest):
         menagerie.verify_sync_exit_status(self, exit_status, sync_job_name)
 
         # Check that we synced new records.
-        # Note: Azure may update file metadata when discovery reads files, causing both files to be synced
-        # This is expected behavior for Azure Blob Storage. We verify that at least the new file was synced.
         records = runner.get_records_from_target_output()
         messages = records.get('chickens').get('messages')
-        self.assertIn(len(messages), [1, 11],
-                     msg="Sync'd unexpected count of messages: {}".format(len(messages)))
+        upsert_messages = [msg for msg in messages if msg.get('action') == 'upsert']
+
+        self.assertEqual(
+            len(upsert_messages),
+            11,
+            msg="Bookmark sync should replicate 11 records with inclusive modified_since filtering, got {}".format(len(upsert_messages))
+        )
+
+        record_names = [msg.get('data', {}).get('name') for msg in upsert_messages]
+        self.assertIn(
+            'Chicken11',
+            record_names,
+            msg="Bookmark sync should include Chicken11 in replicated records: {}".format(record_names)
+        )
 
         # Run a final sync to verify bookmark persistence
         final_sync_job_name = runner.run_sync_mode(self, self.conn_id)

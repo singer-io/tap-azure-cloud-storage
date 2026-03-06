@@ -1,5 +1,6 @@
 import os
 import json
+import re
 from azure.storage.blob import BlobServiceClient
 
 
@@ -40,15 +41,23 @@ def delete_and_push_file(properties, resource_names, folder_path=None, search_pr
     # Parse the tables configuration
     tables = json.loads(properties['tables'])
     container_name = properties['container_name']
-    container_client = blob_service_client.get_container_client(container_name)
+
+    search_prefix = (tables[search_prefix_index].get('search_prefix', '') or '').strip('/')
+    search_pattern = tables[search_prefix_index].get('search_pattern')
+    regex = re.compile(search_pattern) if search_pattern else None
 
     for resource_name in resource_names:
         # Construct the Azure blob path
-        search_prefix = tables[search_prefix_index].get('search_prefix', '')
         if search_prefix:
             blob_path = search_prefix + '/' + resource_name
         else:
             blob_path = resource_name
+
+        if regex and not regex.search(blob_path):
+            raise ValueError(
+                f"Constructed blob path '{blob_path}' does not match table search_pattern '{search_pattern}'. "
+                "Ensure test search_prefix/search_pattern are aligned with uploaded fixture paths."
+            )
 
         # Attempt to delete the file before we start
         blob_client = blob_service_client.get_blob_client(container=container_name, blob=blob_path)
@@ -104,7 +113,7 @@ def delete_azure_blob(properties, blob_name, search_prefix_index=0):
     # Parse the tables configuration
     tables = json.loads(properties['tables'])
     container_name = properties['container_name']
-    search_prefix = tables[search_prefix_index].get('search_prefix', '')
+    search_prefix = (tables[search_prefix_index].get('search_prefix', '') or '').strip('/')
 
     # Construct the blob path
     if search_prefix:

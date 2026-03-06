@@ -56,7 +56,6 @@ class AzureCloudStorageAllFieldsTest(AzureCloudStorageBaseTest):
         stream_to_all_catalog_fields = dict()
         for c in our_catalogs:
             c_annotated = menagerie.get_annotated_schema(self.conn_id, c['stream_id'])
-            connections.select_catalog_and_fields_via_metadata(self.conn_id, c, c_annotated, [], [])
             fields_from_field_level_md = [md_entry['breadcrumb'][1]
                                           for md_entry in c_annotated['metadata']
                                           if md_entry['breadcrumb'] != []]

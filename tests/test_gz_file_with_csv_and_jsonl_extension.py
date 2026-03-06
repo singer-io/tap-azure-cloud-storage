@@ -3,7 +3,7 @@ from base import AzureCloudStorageBaseTest
 from utils_for_test import delete_and_push_file
 
 
-class AzureCloudStorageCompressedGZFileCSVJSONL(AzureCloudStorageBaseTest):
+class AzureCloudStoragePlainCSVAndJSONLTest(AzureCloudStorageBaseTest):
     """
     Test that plain CSV and JSONL files can be read correctly.
     The tap should handle both file types.
@@ -19,10 +19,10 @@ class AzureCloudStorageCompressedGZFileCSVJSONL(AzureCloudStorageBaseTest):
     ]
 
     def setUp(self):
-        delete_and_push_file(self.get_properties(), self.resource_names(), None)
+        delete_and_push_file(self.get_properties(), self.resource_name(), None)
         self.conn_id = connections.ensure_connection(self)
 
-    def resource_names(self):
+    def resource_name(self):
         return ["gz_stored_as_csv.csv", "gz_stored_as_jsonl.jsonl"]
 
     def name(self):
