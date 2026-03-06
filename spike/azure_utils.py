@@ -167,17 +167,9 @@ def cmd_delete(args):
         search_path = f"{container_name}/{prefix}" if prefix else f"{container_name}/"
 
         try:
-            files = fs_client.ls(search_path, detail=False)
-            if not files:
-                print("No blobs found under prefix.")
-                return
-
-            for blob_path in files:
-                blob_name = blob_path
-                if blob_name.startswith(f"{container_name}/"):
-                    blob_name = blob_name[len(container_name)+1:]
-                print(f"Deleting {container_name}/{blob_name}")
-                fs_client.rm(blob_path)
+            # Use recursive=True to delete directories and all their contents
+            print(f"Deleting all content under: {search_path}")
+            fs_client.rm(search_path, recursive=True)
 
             print("Delete complete.")
         except FileNotFoundError:
