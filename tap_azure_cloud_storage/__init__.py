@@ -68,7 +68,8 @@ def validate_table_config(config):
 
     for table_config in tables:
         # Normalize search_prefix - remove leading slash
-        if search_prefix := table_config.get('search_prefix'):
+        search_prefix = table_config.get('search_prefix')
+        if search_prefix:
             if search_prefix.startswith('/'):
                 table_config['search_prefix'] = search_prefix[1:]
         else:
