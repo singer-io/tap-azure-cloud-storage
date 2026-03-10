@@ -161,8 +161,7 @@ def setup_azure_client(config):
                     account_name=storage_account_name
                 )
         except Exception as e:
-            LOGGER.error("Failed to create Azure filesystem client: %s", e)
-            raise
+            raise Exception("Failed to create Azure filesystem client") from e
     return fs
 
 def list_files_in_container(config):
@@ -198,8 +197,7 @@ def list_files_in_container(config):
 
                 yield BlobInfo(file_info['name'], file_info.get('last_modified'))
     except Exception as e:
-        LOGGER.error("Failed to list files in Azure container: %s", e)
-        raise
+        raise Exception("Failed to list files in Azure container") from e
 
 def get_file_handle(config, blob_path):
     """
@@ -212,9 +210,8 @@ def get_file_handle(config, blob_path):
         fs_client = setup_azure_client(config)
         # Open file with adlfs - supports streaming with random access
         return fs_client.open(f'{container_name}/{blob_path}', 'rb')
-    except Exception as exc:
-        LOGGER.warning("Failed to open streaming handle for %s: %s", blob_path, exc)
-        return None
+    except Exception as e:
+        raise Exception(f"Failed to open streaming handle for {blob_path}") from e
 
 def _iter_matching_blobs(config, table_spec):
     """Yield blobs matching table_spec search_prefix and search_pattern."""
@@ -275,7 +272,7 @@ def _get_records_for_csv(blob_path, sample_rate, buffer, table_spec, max_records
             current_row += 1
         LOGGER.info("CSV sampling completed: %d rows sampled from %d total", sampled_row_count, current_row)
     except Exception as e:
-        LOGGER.error("Error sampling CSV file %s: %s", blob_path, e, exc_info=True)
+        raise Exception(f"Error sampling CSV file {blob_path}") from e
 
 def _get_records_for_jsonl(sample_rate, data_bytes, max_records=DEFAULT_MAX_RECORDS):
     current_row = 0
@@ -291,8 +288,8 @@ def _get_records_for_jsonl(sample_rate, data_bytes, max_records=DEFAULT_MAX_RECO
 def _get_records_for_json(sample_rate, data_bytes, max_records=DEFAULT_MAX_RECORDS):
     try:
         loaded = json.loads(data_bytes.decode('utf-8'))
-    except Exception:
-        return
+    except Exception as e:
+        raise Exception("Failed to parse JSON data") from e
     if isinstance(loaded, list):
         sampled_count = 0
         for idx, item in enumerate(loaded):
@@ -390,8 +387,7 @@ def sample_file(table_spec, blob_path, data, sample_rate, extension, max_records
                         break
                 idx += 1
         except Exception as e:
-            LOGGER.warning("Failed to sample Excel file %s: %s", blob_path, e)
-            skipped_files_count += 1
+            raise Exception(f"Failed to sample Excel file {blob_path}") from e
     else:
         LOGGER.warning("\"%s\" with unsupported extension \".%s\" will not be sampled.", blob_path, extension)
         skipped_files_count += 1
@@ -448,9 +444,7 @@ def sampling_gz_file(table_spec, blob_path, data, sample_rate, max_records=DEFAU
         return sample_file(table_spec, full_path, gz_data, sample_rate, gz_extension, max_records)
 
     except Exception as e:
-        LOGGER.warning("Failed to process GZ file %s: %s", blob_path, e)
-        skipped_files_count += 1
-        return []
+        raise Exception(f"Failed to process GZ file {blob_path}") from e
 
 def sampling_zip_file(table_spec, blob_path, data, sample_rate, max_records=DEFAULT_MAX_RECORDS):
     """
@@ -490,8 +484,7 @@ def sampling_zip_file(table_spec, blob_path, data, sample_rate, max_records=DEFA
                 yield record
 
     except Exception as e:
-        LOGGER.warning("Failed to process ZIP file %s: %s", blob_path, e)
-        skipped_files_count += 1
+        raise Exception(f"Failed to process ZIP file {blob_path}") from e
 
 def get_files_to_sample(config, azure_files, max_files):
     """
@@ -512,8 +505,7 @@ def get_files_to_sample(config, azure_files, max_files):
     try:
         fs_client = setup_azure_client(config)
     except Exception as e:
-        LOGGER.error("Failed to setup Azure client: %s", e)
-        return []
+        raise Exception("Failed to setup Azure client") from e
 
     for azure_file in azure_files:
         if len(sampled_files) >= max_files:
@@ -528,9 +520,7 @@ def get_files_to_sample(config, azure_files, max_files):
             with fs_client.open(f'{container_name}/{file_key}', 'rb') as f:
                 data = f.read()
         except Exception as e:
-            LOGGER.warning("Skipping %s due to download error: %s", file_key, e)
-            skipped_files_count += 1
-            continue
+            raise Exception(f"Failed to download file {file_key}") from e
 
         file_name = file_key.split("/")[-1]
         lower_name = file_name.lower()
@@ -553,9 +543,7 @@ def get_files_to_sample(config, azure_files, max_files):
                 gz_file_obj = gzip.GzipFile(fileobj=io.BytesIO(data))
                 data = gz_file_obj.read()
             except Exception as e:
-                LOGGER.warning("Failed to decompress gzipped file %s: %s", file_key, e)
-                skipped_files_count += 1
-                continue
+                raise Exception(f"Failed to decompress gzipped file {file_key}") from e
 
         sampled_files.append({
             'blob_path': file_key,
@@ -624,12 +612,8 @@ def sample_files(
                     LOGGER.error("Exception during iteration: %s", e, exc_info=True)
                     raise
             LOGGER.info("Yielded %d samples from %s", sample_count, blob_path)
-        except (UnicodeDecodeError, json.JSONDecodeError) as e:
-            LOGGER.warning("Skipping %s file as parsing failed: %s. Verify the extension of the file.", blob_path, e)
-            skipped_files_count += 1
-        except (OSError, EOFError, ValueError, TypeError, struct.error) as e:
-            LOGGER.warning("Skipping %s file due to recoverable sampling error: %s", blob_path, e, exc_info=True)
-            skipped_files_count += 1
+        except Exception as e:
+            raise Exception(f"Failed to sample file {blob_path}") from e
 
 def get_sampled_schema_for_table(config, table_spec):
     LOGGER.info("Sampling records to determine table schema for table \"%s\".", table_spec.get('table_name'))

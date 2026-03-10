@@ -149,14 +149,11 @@ def handle_file(config, blob_path, table_spec, stream, extension, file_handler=N
                 return 0
             return sync_excel_file(config, file_handle, blob_path, table_spec, stream)
 
-        if extension == "zip" or extension == "gz":
-            # If file_handler is provided, it means we're inside a compressed file already
-            # Skip nested compression to prevent infinite loops
-            if file_handler:
-                LOGGER.warning("Skipping \"%s\" file as it contains nested compression.", blob_path)
-                azure_storage.skipped_files_count = azure_storage.skipped_files_count + 1
-                return 0
-            return sync_compressed_file(config, blob_path, table_spec, stream)
+        if extension in ("zip", "gz") and file_handler:
+            # Inside a compressed archive – skip nested compression to prevent infinite loops
+            LOGGER.warning("Skipping \"%s\" file as it contains nested compression.", blob_path)
+            azure_storage.skipped_files_count = azure_storage.skipped_files_count + 1
+            return 0
 
         LOGGER.warning("\"%s\" having the \".%s\" extension will not be synced.", blob_path, extension)
         azure_storage.skipped_files_count = azure_storage.skipped_files_count + 1

@@ -131,12 +131,12 @@ class TestExcelSampling(unittest.TestCase):
 
         table_spec = {'key_properties': []}
 
-        # Should not raise, just return empty and increment skipped count
-        records = list(azure_storage.sample_file(
-            table_spec, 'corrupted.xlsx', b'bad_data', 1, 'xlsx', 1000
-        ))
-
-        self.assertEqual(len(records), 0)
+        # Should raise Exception with descriptive message
+        with self.assertRaises(Exception) as context:
+            list(azure_storage.sample_file(
+                table_spec, 'corrupted.xlsx', b'bad_data', 1, 'xlsx', 1000
+            ))
+        self.assertIn("Failed to sample Excel file corrupted.xlsx", str(context.exception))
 
 
 class TestExcelSync(unittest.TestCase):

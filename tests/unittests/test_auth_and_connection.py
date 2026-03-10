@@ -84,8 +84,9 @@ class TestAzureAuthentication(unittest.TestCase):
         # Reset global fs
         azure_storage.fs = None
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(Exception) as context:
             azure_storage.setup_azure_client(config)
+        self.assertIn("Failed to create Azure filesystem client", str(context.exception))
 
 
 class TestAzureConnection(unittest.TestCase):
@@ -154,8 +155,9 @@ class TestAzureConnection(unittest.TestCase):
 
         config = {'container_name': 'nonexistent-container'}
 
-        with self.assertRaises(ResourceNotFoundError):
+        with self.assertRaises(Exception) as context:
             list(azure_storage.list_files_in_container(config))
+        self.assertIn("Failed to list files in Azure container", str(context.exception))
 
     @patch('tap_azure_cloud_storage.azure_storage.setup_azure_client')
     def test_connection_fails_with_no_permissions(self, mock_setup_client):
@@ -168,8 +170,9 @@ class TestAzureConnection(unittest.TestCase):
 
         config = {'container_name': 'forbidden-container'}
 
-        with self.assertRaises(HttpResponseError):
+        with self.assertRaises(Exception) as context:
             list(azure_storage.list_files_in_container(config))
+        self.assertIn("Failed to list files in Azure container", str(context.exception))
 
 
 class TestAzureFileOperations(unittest.TestCase):
@@ -204,9 +207,9 @@ class TestAzureFileOperations(unittest.TestCase):
         config = {'container_name': 'test-container'}
         blob_path = 'nonexistent.csv'
 
-        file_handle = azure_storage.get_file_handle(config, blob_path)
-
-        self.assertIsNone(file_handle)
+        with self.assertRaises(Exception) as context:
+            azure_storage.get_file_handle(config, blob_path)
+        self.assertIn("Failed to open streaming handle for nonexistent.csv", str(context.exception))
 
 
 if __name__ == '__main__':
