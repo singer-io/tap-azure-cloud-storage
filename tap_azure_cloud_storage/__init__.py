@@ -106,9 +106,9 @@ def main():
             if file_count > 0:
                 break
         LOGGER.info("Successfully verified Azure connection. Found %d file(s).", file_count)
-    except Exception as exc:
-        LOGGER.error("Failed to connect to Azure or verify permissions: %s", exc)
-        raise Exception("Failed to connect to Azure. Please verify your credentials and permissions.") from exc
+    except Exception as e:
+        LOGGER.error("Failed to connect to Azure or verify permissions: %s", e)
+        raise Exception("Failed to connect to Azure. Please verify your credentials and permissions.") from e
 
     now_str = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
     sync_start_time = singer_utils.strptime_with_tz(now_str)
