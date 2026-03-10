@@ -608,9 +608,6 @@ def sample_files(
                     LOGGER.info("StopIteration raised: %s", e)
                 except GeneratorExit as e:
                     LOGGER.info("GeneratorExit raised: %s", e)
-                except Exception as e:
-                    LOGGER.error("Exception during iteration: %s", e, exc_info=True)
-                    raise
             LOGGER.info("Yielded %d samples from %s", sample_count, blob_path)
         except Exception as e:
             raise Exception(f"Failed to sample file {blob_path}") from e
