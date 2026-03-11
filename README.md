@@ -349,7 +349,7 @@ The tap automatically adds metadata columns to each record:
 
 ### Excel Files (.xlsx)
 - First row treated as headers
-- Single worksheet support
+- Multiple worksheets supported; each sheet processed and sheet name appended to `_sdc_source_file`
 - Automatic type inference
 
 ### Compressed Files
