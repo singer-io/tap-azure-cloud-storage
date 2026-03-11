@@ -33,8 +33,7 @@ def sync_stream(config, state, table_spec, stream, sync_start_time):
         singer.get_bookmark(state, table_name, 'modified_since') or config['start_date']
     )
 
-    LOGGER.info("Syncing table \"%s\".", table_name)
-    LOGGER.info("Getting files modified since %s.", modified_since)
+    LOGGER.info("Syncing table \"%s\". Getting files modified since %s.", table_name, modified_since)
 
     # Reset skipped files counter for this stream to get accurate per-stream counts
     azure_storage.skipped_files_count = 0
@@ -91,7 +90,6 @@ def handle_file(config, blob_path, table_spec, stream, extension, file_handler=N
             file_handle.close()
 
             if len(peek_data) >= 2 and peek_data[0] == 0x1f and peek_data[1] == 0x8b:
-                LOGGER.info("Detected gzipped content in \"%s\" despite .%s extension, treating as gz file", blob_path, extension)
                 # Treat as a gz file instead
                 return sync_gz_file(config, blob_path, table_spec, stream)
 

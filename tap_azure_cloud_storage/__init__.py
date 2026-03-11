@@ -100,12 +100,8 @@ def main():
     config['tables'] = validate_table_config(config)
 
     try:
-        file_count = 0
-        for file in azure_storage.list_files_in_container(config):
-            file_count += 1
-            if file_count > 0:
-                break
-        LOGGER.info("Successfully verified Azure connection. Found %d file(s).", file_count)
+        azure_storage.setup_azure_client(config)
+        LOGGER.info("Successfully verified Azure connection.")
     except Exception as e:
         LOGGER.error("Failed to connect to Azure or verify permissions: %s", e)
         raise Exception("Failed to connect to Azure. Please verify your credentials and permissions.") from e

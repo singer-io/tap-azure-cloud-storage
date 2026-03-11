@@ -131,7 +131,6 @@ def setup_azure_client(config):
     global fs
     if fs is None:
         try:
-            LOGGER.info("Creating Azure filesystem client using adlfs")
             storage_account_name = config.get('storage_account_name')
 
             # Build authentication parameters based on available credentials
@@ -270,7 +269,6 @@ def _get_records_for_csv(blob_path, sample_rate, buffer, table_spec, max_records
                 if max_records is not None and sampled_row_count >= max_records:
                     break
             current_row += 1
-        LOGGER.info("CSV sampling completed: %d rows sampled from %d total", sampled_row_count, current_row)
     except Exception as e:
         raise Exception(f"Error sampling CSV file {blob_path}") from e
 
@@ -341,7 +339,6 @@ def sample_file(table_spec, blob_path, data, sample_rate, extension, max_records
 
     # Delimited text: CSV/TXT/TSV/PSV
     if extension in ['csv', 'txt', 'tsv', 'psv']:
-        LOGGER.info("Processing CSV file: %s, data length: %d bytes", blob_path, len(data) if data else 0)
         ts = dict(table_spec or {})
         if 'delimiter' not in ts or ts.get('delimiter') in (None, ''):
             if extension == 'tsv':
@@ -380,7 +377,7 @@ def sample_file(table_spec, blob_path, data, sample_rate, extension, max_records
                 return
 
             idx = 0
-            for sheet_name, row_dict in iterator:
+            for _, row_dict in iterator:
                 if (idx % sample_rate) == 0 and isinstance(row_dict, dict):
                     yield unwrap_excel_commented_cells(row_dict)
                     if max_records is not None and idx >= max_records * sample_rate:
@@ -575,15 +572,11 @@ def sample_files(
         dict: Sampled records
     """
     global skipped_files_count
-    LOGGER.info("Sampling files (max files: %s)", max_files)
 
     for azure_file in itertools.islice(get_files_to_sample(config, azure_files, max_files), max_files):
         blob_path = azure_file.get('blob_path', '')
         data = azure_file.get('data')
         extension = azure_file.get('extension')
-
-        LOGGER.info("Sampling %s (max records: %s, sample rate: %s)",
-                    blob_path, max_records, sample_rate)
 
         try:
             sample_count = 0
@@ -596,24 +589,13 @@ def sample_files(
                     sample_count += 1
                     yield record
             else:
-                LOGGER.info("About to call sample_file for %s with extension %s", blob_path, extension)
-                gen = sample_file(table_spec, blob_path, data, sample_rate, extension, max_records)
-                LOGGER.info("Generator created: %s", gen)
-                try:
-                    for record in gen:
-                        sample_count += 1
-                        yield record
-                    LOGGER.info("Generator exhausted after %d records", sample_count)
-                except StopIteration as e:
-                    LOGGER.info("StopIteration raised: %s", e)
-                except GeneratorExit as e:
-                    LOGGER.info("GeneratorExit raised: %s", e)
-            LOGGER.info("Yielded %d samples from %s", sample_count, blob_path)
+                for record in sample_file(table_spec, blob_path, data, sample_rate, extension, max_records):
+                    sample_count += 1
+                    yield record
         except Exception as e:
             raise Exception(f"Failed to sample file {blob_path}") from e
 
 def get_sampled_schema_for_table(config, table_spec):
-    LOGGER.info("Sampling records to determine table schema for table \"%s\".", table_spec.get('table_name'))
     global skipped_files_count
     skipped_files_count = 0
 
