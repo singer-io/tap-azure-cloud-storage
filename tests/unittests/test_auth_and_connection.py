@@ -77,7 +77,10 @@ class TestAzureAuthentication(unittest.TestCase):
         mock_fs.side_effect = ValueError('Invalid credentials')
 
         config = {
-            'connection_string': 'invalid-connection-string',
+            'storage_account_name': 'testaccount',
+            'tenant_id': 'invalid-tenant-id',
+            'client_id': 'invalid-client-id',
+            'client_secret': 'invalid-client-secret',
             'container_name': 'test-container'
         }
 

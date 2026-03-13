@@ -15,6 +15,10 @@ from tap_azure_cloud_storage.config import CONFIG_CONTRACT
 LOGGER = singer.get_logger()
 
 REQUIRED_CONFIG_KEYS = [
+    "tenant_id",
+    "client_id",
+    "client_secret",
+    "storage_account_name",
     "container_name",
     "start_date",
     "tables"

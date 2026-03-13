@@ -1,7 +1,40 @@
 import os
 import json
 import re
+from azure.identity import ClientSecretCredential
 from azure.storage.blob import BlobServiceClient
+
+
+def _get_blob_service_client():
+    """
+    Create a BlobServiceClient using Service Principal credentials
+    from environment variables.
+
+    Required environment variables:
+    - TAP_AZURE_TENANT_ID
+    - TAP_AZURE_CLIENT_ID
+    - TAP_AZURE_CLIENT_SECRET
+    - TAP_AZURE_STORAGE_ACCOUNT_NAME
+    """
+    tenant_id = os.getenv('TAP_AZURE_TENANT_ID')
+    client_id = os.getenv('TAP_AZURE_CLIENT_ID')
+    client_secret = os.getenv('TAP_AZURE_CLIENT_SECRET')
+    account_name = os.getenv('TAP_AZURE_STORAGE_ACCOUNT_NAME')
+
+    if not all([tenant_id, client_id, client_secret, account_name]):
+        raise ValueError(
+            "Service Principal environment variables are not set. "
+            "Required: TAP_AZURE_TENANT_ID, TAP_AZURE_CLIENT_ID, "
+            "TAP_AZURE_CLIENT_SECRET, TAP_AZURE_STORAGE_ACCOUNT_NAME"
+        )
+
+    credential = ClientSecretCredential(
+        tenant_id=tenant_id,
+        client_id=client_id,
+        client_secret=client_secret,
+    )
+    account_url = f"https://{account_name}.blob.core.windows.net"
+    return BlobServiceClient(account_url=account_url, credential=credential)
 
 
 def get_resources_path(file_path, folder_path=None):
@@ -31,12 +64,8 @@ def delete_and_push_file(properties, resource_names, folder_path=None, search_pr
         folder_path (str, optional): Subfolder within resources directory
         search_prefix_index (int): Index of the table in tables config
     """
-    # Initialize Azure Blob Service Client from connection string
-    connection_string = os.getenv('TAP_AZURE_CONNECTION_STRING')
-    if not connection_string:
-        raise ValueError("TAP_AZURE_CONNECTION_STRING environment variable is not set")
-
-    blob_service_client = BlobServiceClient.from_connection_string(connection_string)
+    # Initialize Azure Blob Service Client using Service Principal
+    blob_service_client = _get_blob_service_client()
 
     # Parse the tables configuration
     tables = json.loads(properties['tables'])
@@ -80,16 +109,15 @@ def download_blob_bytes(config, blob_path):
     Download blob content from Azure Blob Storage as bytes.
 
     Args:
-        config (dict): Configuration with connection_string and container_name
+        config (dict): Configuration with container_name
         blob_path (str): Path to the file in Azure Blob Storage
 
     Returns:
         bytes: Full blob content as bytes
     """
-    connection_string = config['connection_string']
     container_name = config['container_name']
 
-    blob_service_client = BlobServiceClient.from_connection_string(connection_string)
+    blob_service_client = _get_blob_service_client()
     blob_client = blob_service_client.get_blob_client(container=container_name, blob=blob_path)
 
     return blob_client.download_blob().readall()
@@ -104,11 +132,7 @@ def delete_azure_blob(properties, blob_name, search_prefix_index=0):
         blob_name (str): Name of the blob to delete
         search_prefix_index (int): Index of the table in tables config
     """
-    connection_string = os.getenv('TAP_AZURE_CONNECTION_STRING')
-    if not connection_string:
-        raise ValueError("TAP_AZURE_CONNECTION_STRING environment variable is not set")
-
-    blob_service_client = BlobServiceClient.from_connection_string(connection_string)
+    blob_service_client = _get_blob_service_client()
 
     # Parse the tables configuration
     tables = json.loads(properties['tables'])

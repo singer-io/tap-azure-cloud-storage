@@ -31,10 +31,14 @@ class AzureCloudStorageBaseTest(unittest.TestCase):
         """
         Azure Cloud Storage credentials from environment variables.
         Required environment variables:
-        - TAP_AZURE_CONNECTION_STRING
+        - TAP_AZURE_TENANT_ID
+        - TAP_AZURE_CLIENT_ID
+        - TAP_AZURE_CLIENT_SECRET
         """
         credentials_dict = {
-            'connection_string': os.getenv('TAP_AZURE_CONNECTION_STRING')
+            'tenant_id': os.getenv('TAP_AZURE_TENANT_ID'),
+            'client_id': os.getenv('TAP_AZURE_CLIENT_ID'),
+            'client_secret': os.getenv('TAP_AZURE_CLIENT_SECRET'),
         }
 
         return credentials_dict
@@ -51,7 +55,8 @@ class AzureCloudStorageBaseTest(unittest.TestCase):
         """
         props = {
             'start_date': os.getenv('TAP_AZURE_START_DATE', '2021-11-02T00:00:00Z'),
-            'container_name': os.getenv('TAP_AZURE_CONTAINER_NAME', 'tap-azure-test-container'),
+            'storage_account_name': os.getenv('TAP_AZURE_STORAGE_ACCOUNT_NAME'),
+            'container_name': os.getenv('TAP_AZURE_CONTAINER_NAME'),
             'tables': json.dumps(self.table_entry)
         }
         if original:

@@ -2,11 +2,8 @@
   "tenant_id": "your-azure-tenant-id",
   "client_id": "your-azure-client-id",
   "client_secret": "your-azure-client-secret",
-
-  "connection_string": "your-azure-connection-string",
+  "storage_account_name": "your-azure-storage-account-name",
   "container_name": "your-azure-container-name",
-
-
   "start_date": "2024-01-01T00:00:00Z",
   "tables": [
     {
