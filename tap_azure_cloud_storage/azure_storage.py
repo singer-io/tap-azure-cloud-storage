@@ -377,10 +377,12 @@ def sample_file(table_spec, blob_path, data, sample_rate, extension, max_records
                 return
 
             idx = 0
+            sampled_count = 0
             for _, row_dict in iterator:
                 if (idx % sample_rate) == 0 and isinstance(row_dict, dict):
                     yield unwrap_excel_commented_cells(row_dict)
-                    if max_records is not None and idx >= max_records * sample_rate:
+                    sampled_count += 1
+                    if max_records is not None and sampled_count >= max_records:
                         break
                 idx += 1
         except Exception as e:

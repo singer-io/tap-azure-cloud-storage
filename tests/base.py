@@ -2,7 +2,6 @@ import json
 import os
 import time
 import unittest
-import utils_for_test as utils
 from tap_tester import connections, menagerie, runner
 from datetime import datetime as dt
 
