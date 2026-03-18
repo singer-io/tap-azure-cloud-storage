@@ -154,7 +154,6 @@ def setup_azure_client(config):
                     account_key=config['account_key']
                 )
             else:
-                # Use default credential (managed identity)
                 LOGGER.info("Using Default Azure Credential (managed identity)")
                 fs = adlfs.AzureBlobFileSystem(
                     account_name=storage_account_name
