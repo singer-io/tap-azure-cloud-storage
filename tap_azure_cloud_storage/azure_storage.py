@@ -7,6 +7,7 @@ import gzip
 import struct
 import itertools
 import singer
+import backoff
 import adlfs
 from singer_encodings import (
     csv as singer_csv,
@@ -16,8 +17,16 @@ from singer_encodings import (
     compression
 )
 from tap_azure_cloud_storage import conversion
+from tap_azure_cloud_storage.exceptions import (
+    AzureBackoffError,
+    AzureRateLimitError,
+    RAW_EXCEPTIONS,
+    raise_for_error,
+)
 
 LOGGER = singer.get_logger()
+
+MAX_TRIES = 5  # Maximum total attempts (initial + retries) for backoff decorator
 
 # Global Azure filesystem instance for streaming Parquet/Avro files
 fs = None
@@ -118,6 +127,19 @@ def get_file_name_from_gzfile(filename=None, fileobj=None):
 
     return None
 
+@backoff.on_exception(
+    backoff.expo,
+    AzureRateLimitError,
+    max_tries=6,
+    max_time=60,
+    jitter=None,
+)
+@backoff.on_exception(
+    backoff.expo,
+    AzureBackoffError,
+    max_tries=MAX_TRIES,
+    factor=2,
+)
 def setup_azure_client(config):
     """
     Setup Azure Data Lake filesystem client using adlfs.
@@ -158,9 +180,32 @@ def setup_azure_client(config):
                 fs = adlfs.AzureBlobFileSystem(
                     account_name=storage_account_name
                 )
+        except RAW_EXCEPTIONS as e:
+            raise_for_error(e)
         except Exception as e:
             raise Exception("Failed to create Azure filesystem client") from e
     return fs
+
+@backoff.on_exception(
+    backoff.expo,
+    AzureRateLimitError,
+    max_tries=6,
+    max_time=60,
+    jitter=None,
+)
+@backoff.on_exception(
+    backoff.expo,
+    AzureBackoffError,
+    max_tries=MAX_TRIES,
+    factor=2,
+)
+def _list_blobs_with_retry(fs_client, path):
+    """Non-generator wrapper so backoff can retry the full blob listing."""
+    try:
+        return fs_client.ls(path, detail=True)
+    except RAW_EXCEPTIONS as e:
+        raise_for_error(e)
+
 
 def list_files_in_container(config):
     """
@@ -180,8 +225,10 @@ def list_files_in_container(config):
         # Build the path for adlfs
         path = f"{container_name}/{prefix}" if prefix else container_name
 
-        # List files using adlfs
-        files = fs_client.ls(path, detail=True)
+        # Use the backoff-enabled helper to retrieve the full blob listing
+        # so that transient errors are retried before any blobs are yielded,
+        # avoiding duplicates that would occur with a yield-then-retry pattern.
+        files = _list_blobs_with_retry(fs_client, path)
 
         # Convert adlfs file info to blob-like objects
         for file_info in files:
@@ -194,20 +241,41 @@ def list_files_in_container(config):
                         self.last_modified = last_modified
 
                 yield BlobInfo(file_info['name'], file_info.get('last_modified'))
+    except (AzureBackoffError, AzureRateLimitError):
+        # Retries are already exhausted by the backoff decorator; let the error propagate.
+        raise
+    except RAW_EXCEPTIONS as e:
+        raise_for_error(e)
     except Exception as e:
         raise Exception("Failed to list files in Azure container") from e
 
+@backoff.on_exception(
+    backoff.expo,
+    AzureRateLimitError,
+    max_tries=6,
+    max_time=60,
+    jitter=None,
+)
+@backoff.on_exception(
+    backoff.expo,
+    AzureBackoffError,
+    max_tries=MAX_TRIES,
+    factor=2,
+)
 def get_file_handle(config, blob_path):
     """
     Get a streaming file handle for all file types using adlfs.
     This provides random access (seeking) support for formats that need it (Parquet/Avro)
     and works efficiently for sequential reading (CSV/JSON/Excel).
+    Retries automatically on transient 5xx / 429 errors.
     """
     try:
         container_name = config['container_name']
         fs_client = setup_azure_client(config)
         # Open file with adlfs - supports streaming with random access
         return fs_client.open(f'{container_name}/{blob_path}', 'rb')
+    except RAW_EXCEPTIONS as e:
+        raise_for_error(e)
     except Exception as e:
         raise Exception(f"Failed to open streaming handle for {blob_path}") from e
 
@@ -484,6 +552,28 @@ def sampling_zip_file(table_spec, blob_path, data, sample_rate, max_records=DEFA
     except Exception as e:
         raise Exception(f"Failed to process ZIP file {blob_path}") from e
 
+@backoff.on_exception(
+    backoff.expo,
+    AzureRateLimitError,
+    max_tries=6,
+    max_time=60,
+    jitter=None,
+)
+@backoff.on_exception(
+    backoff.expo,
+    AzureBackoffError,
+    max_tries=MAX_TRIES,
+    factor=2,
+)
+def _download_blob_with_retry(fs_client, container_name, file_key):
+    """Download blob contents with automatic retry on transient errors."""
+    try:
+        with fs_client.open(f'{container_name}/{file_key}', 'rb') as f:
+            return f.read()
+    except RAW_EXCEPTIONS as e:
+        raise_for_error(e)
+
+
 def get_files_to_sample(config, azure_files, max_files):
     """
     Prepare Azure blob files for sampling, downloading and extracting compressed files.
@@ -514,9 +604,10 @@ def get_files_to_sample(config, azure_files, max_files):
             continue
 
         try:
-            # Use adlfs to read the file
-            with fs_client.open(f'{container_name}/{file_key}', 'rb') as f:
-                data = f.read()
+            data = _download_blob_with_retry(fs_client, container_name, file_key)
+        except (AzureBackoffError, AzureRateLimitError):
+            # Retries are already exhausted by the backoff decorator; let the error propagate.
+            raise
         except Exception as e:
             raise Exception(f"Failed to download file {file_key}") from e
 

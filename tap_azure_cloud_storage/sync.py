@@ -18,6 +18,7 @@ from singer_encodings import (
 )
 from tap_azure_cloud_storage import azure_storage
 from tap_azure_cloud_storage.azure_storage import get_file_name_from_gzfile
+from tap_azure_cloud_storage.exceptions import AzureBackoffError, AzureRateLimitError
 
 
 LOGGER = singer.get_logger()
@@ -72,6 +73,10 @@ def sync_table_file(config, blob_path, table_spec, stream):
         if extension in ["csv", "jsonl", "txt", "tsv", "psv", "parquet", "avro", "xlsx"]:
             return handle_file(config, blob_path, table_spec, stream, extension)
         LOGGER.warning("\"%s\" having the \".%s\" extension will not be synced.", blob_path, extension)
+    except (AzureBackoffError, AzureRateLimitError):
+        # Let transient server errors propagate so the caller can surface them.
+        # These have already been retried by the backoff decorators in azure_storage.py.
+        raise
     except (UnicodeDecodeError, json.decoder.JSONDecodeError):
         LOGGER.warning("Skipping %s file as parsing failed. Verify an extension of the file.", blob_path)
         azure_storage.skipped_files_count = azure_storage.skipped_files_count + 1
@@ -97,7 +102,7 @@ def handle_file(config, blob_path, table_spec, stream, extension, file_handler=N
     # If file_handler was passed in, caller owns it; otherwise we need to manage it
     own_handle = file_handler is None
     file_handle = file_handler
-    
+
     try:
         if extension in ["csv", "txt", "tsv", "psv"]:
             # Use streaming file handle - doesn't load entire file into memory
