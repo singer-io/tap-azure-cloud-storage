@@ -202,7 +202,7 @@ def setup_azure_client(config):
 def _list_blobs_with_retry(fs_client, path):
     """Non-generator wrapper so backoff can retry the full blob listing."""
     try:
-        return fs_client.ls(path, detail=True)
+        return list(fs_client.find(path, detail=True).values())
     except RAW_EXCEPTIONS as e:
         raise_for_error(e)
 
