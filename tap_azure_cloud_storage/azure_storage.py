@@ -202,7 +202,7 @@ def setup_azure_client(config):
 def _list_blobs_with_retry(fs_client, path):
     """Non-generator wrapper so backoff can retry the full blob listing."""
     try:
-        return fs_client.ls(path, detail=True)
+        return list(fs_client.find(path, detail=True).values())
     except RAW_EXCEPTIONS as e:
         raise_for_error(e)
 
@@ -285,7 +285,16 @@ def _iter_matching_blobs(config, table_spec):
     root = config.get('root_path', '') or ''
     effective_prefix = f"{root}{search_prefix}" if root else search_prefix
     pattern = table_spec.get('search_pattern')
-    regex = re.compile(pattern) if pattern else None
+    if pattern:
+        try:
+            regex = re.compile(pattern)
+        except re.error as e:
+            raise ValueError(
+                f"Invalid search_pattern {pattern!r} for table "
+                f"'{table_spec.get('table_name')}': {e}."
+            ) from e
+    else:
+        regex = None
 
     for blob in list_files_in_container({**config, 'root_path': effective_prefix}):
         name = blob.name

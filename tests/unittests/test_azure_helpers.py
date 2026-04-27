@@ -158,7 +158,7 @@ class TestPrefixFiltering(unittest.TestCase):
             'last_modified': '2026-01-15T11:00:00Z'
         }
 
-        mock_client.ls.return_value = [file1, file2]
+        mock_client.find.return_value = {file1['name']: file1, file2['name']: file2}
         mock_setup_client.return_value = mock_client
 
         config = {'container_name': 'test-container', 'root_path': 'exports/'}
@@ -166,7 +166,7 @@ class TestPrefixFiltering(unittest.TestCase):
 
         # Should only get files with exports/ prefix
         self.assertEqual(len(files), 2)
-        mock_client.ls.assert_called_once_with('test-container/exports/', detail=True)
+        mock_client.find.assert_called_once_with('test-container/exports/', detail=True)
 
     @patch('tap_azure_cloud_storage.azure_storage.setup_azure_client')
     def test_prefix_normalization_removes_leading_slash_from_root_path(self, mock_setup_client):
@@ -174,7 +174,7 @@ class TestPrefixFiltering(unittest.TestCase):
         from tap_azure_cloud_storage import azure_storage
 
         mock_client = MagicMock()
-        mock_client.ls.return_value = []
+        mock_client.find.return_value = {}
         mock_setup_client.return_value = mock_client
 
         config = {
@@ -185,7 +185,7 @@ class TestPrefixFiltering(unittest.TestCase):
         list(azure_storage.list_files_in_container(config))
 
         # Leading slash in root_path should be stripped when building the path
-        mock_client.ls.assert_called_once_with('test-container/exports/data/', detail=True)
+        mock_client.find.assert_called_once_with('test-container/exports/data/', detail=True)
 
     @patch('tap_azure_cloud_storage.azure_storage.setup_azure_client')
     def test_prefix_with_nested_folders_root_path(self, mock_setup_client):
@@ -193,7 +193,7 @@ class TestPrefixFiltering(unittest.TestCase):
         from tap_azure_cloud_storage import azure_storage
 
         mock_client = MagicMock()
-        mock_client.ls.return_value = []
+        mock_client.find.return_value = {}
         mock_setup_client.return_value = mock_client
 
         config = {
@@ -203,7 +203,7 @@ class TestPrefixFiltering(unittest.TestCase):
 
         list(azure_storage.list_files_in_container(config))
 
-        mock_client.ls.assert_called_once_with('test-container/exports/2024/01/15/', detail=True)
+        mock_client.find.assert_called_once_with('test-container/exports/2024/01/15/', detail=True)
 
 
 if __name__ == '__main__':

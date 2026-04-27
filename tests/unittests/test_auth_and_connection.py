@@ -123,7 +123,7 @@ class TestAzureConnection(unittest.TestCase):
             'last_modified': '2026-01-15T11:00:00Z'
         }
 
-        mock_client.ls.return_value = [file1, file2]
+        mock_client.find.return_value = {file1['name']: file1, file2['name']: file2}
         mock_setup_client.return_value = mock_client
 
         config = {'container_name': 'test-container'}
@@ -147,7 +147,7 @@ class TestAzureConnection(unittest.TestCase):
             'last_modified': '2026-01-15T10:00:00Z'
         }
 
-        mock_client.ls.return_value = [file1]
+        mock_client.find.return_value = {file1['name']: file1}
         mock_setup_client.return_value = mock_client
 
         config = {'container_name': 'test-container', 'root_path': 'exports/'}
@@ -155,7 +155,7 @@ class TestAzureConnection(unittest.TestCase):
         files = list(azure_storage.list_files_in_container(config))
 
         self.assertEqual(len(files), 1)
-        mock_client.ls.assert_called_once_with('test-container/exports/', detail=True)
+        mock_client.find.assert_called_once_with('test-container/exports/', detail=True)
 
     @patch('tap_azure_cloud_storage.azure_storage.setup_azure_client')
     def test_connection_fails_with_invalid_container(self, mock_setup_client):
@@ -163,7 +163,7 @@ class TestAzureConnection(unittest.TestCase):
         from tap_azure_cloud_storage import azure_storage
 
         mock_client = MagicMock()
-        mock_client.ls.side_effect = ResourceNotFoundError('Container not found')
+        mock_client.find.side_effect = ResourceNotFoundError('Container not found')
         mock_setup_client.return_value = mock_client
 
         config = {'container_name': 'nonexistent-container'}
@@ -178,7 +178,7 @@ class TestAzureConnection(unittest.TestCase):
         from tap_azure_cloud_storage import azure_storage
 
         mock_client = MagicMock()
-        mock_client.ls.side_effect = HttpResponseError('Access denied', response=MagicMock(status_code=403))
+        mock_client.find.side_effect = HttpResponseError('Access denied', response=MagicMock(status_code=403))
         mock_setup_client.return_value = mock_client
 
         config = {'container_name': 'forbidden-container'}
@@ -245,9 +245,9 @@ class TestConnectionRetry(unittest.TestCase):
         mock_blob = {'name': 'test-container/file.csv', 'type': 'file', 'last_modified': '2026-01-01T00:00:00Z'}
 
         # First call raises 500, backoff retries and second call succeeds
-        mock_client.ls.side_effect = [
+        mock_client.find.side_effect = [
             self._make_http_error(500, 'Internal Server Error'),
-            [mock_blob],
+            {mock_blob['name']: mock_blob},
         ]
         mock_setup_client.return_value = mock_client
 
@@ -256,8 +256,8 @@ class TestConnectionRetry(unittest.TestCase):
         files = list(azure_storage.list_files_in_container(config))
 
         self.assertEqual(len(files), 1)
-        # ls called twice: first fails, backoff retries, second succeeds
-        self.assertEqual(mock_client.ls.call_count, 2)
+        # find called twice: first fails, backoff retries, second succeeds
+        self.assertEqual(mock_client.find.call_count, 2)
 
     @_patch_backoff_sleep()
     @patch('tap_azure_cloud_storage.azure_storage.setup_azure_client')
@@ -269,9 +269,9 @@ class TestConnectionRetry(unittest.TestCase):
         mock_blob = {'name': 'test-container/data.csv', 'type': 'file', 'last_modified': '2026-01-01T00:00:00Z'}
 
         # First call raises 503, backoff retries and second call succeeds
-        mock_client.ls.side_effect = [
+        mock_client.find.side_effect = [
             self._make_http_error(503, 'Service Unavailable'),
-            [mock_blob],
+            {mock_blob['name']: mock_blob},
         ]
         mock_setup_client.return_value = mock_client
 
@@ -280,8 +280,8 @@ class TestConnectionRetry(unittest.TestCase):
         files = list(azure_storage.list_files_in_container(config))
 
         self.assertEqual(len(files), 1)
-        # ls called twice: first fails, backoff retries, second succeeds
-        self.assertEqual(mock_client.ls.call_count, 2)
+        # find called twice: first fails, backoff retries, second succeeds
+        self.assertEqual(mock_client.find.call_count, 2)
 
     @_patch_backoff_sleep()
     @patch('tap_azure_cloud_storage.azure_storage.setup_azure_client')
@@ -441,9 +441,9 @@ class TestConnectionRetry(unittest.TestCase):
         mock_client = MagicMock()
         mock_blob = {'name': 'test-container/file.csv', 'type': 'file', 'last_modified': '2026-01-01T00:00:00Z'}
 
-        mock_client.ls.side_effect = [
+        mock_client.find.side_effect = [
             ServiceRequestError('Connection error'),
-            [mock_blob],
+            {mock_blob['name']: mock_blob},
         ]
         mock_setup_client.return_value = mock_client
 
@@ -452,7 +452,7 @@ class TestConnectionRetry(unittest.TestCase):
         files = list(azure_storage.list_files_in_container(config))
 
         self.assertEqual(len(files), 1)
-        self.assertEqual(mock_client.ls.call_count, 2)
+        self.assertEqual(mock_client.find.call_count, 2)
 
 
 if __name__ == '__main__':
