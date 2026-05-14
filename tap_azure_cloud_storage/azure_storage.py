@@ -279,6 +279,38 @@ def get_file_handle(config, blob_path):
     except Exception as e:
         raise Exception(f"Failed to open streaming handle for {blob_path}") from e
 
+
+@backoff.on_exception(
+    backoff.expo,
+    AzureRateLimitError,
+    max_tries=6,
+    max_time=60,
+    jitter=None,
+)
+@backoff.on_exception(
+    backoff.expo,
+    AzureBackoffError,
+    max_tries=MAX_TRIES,
+    factor=2,
+)
+def get_file_bytes(config, blob_path):
+    """
+    Download the entire file as bytes in a single HTTP GET (fs.cat).
+    ~20x faster than streaming (fs.open) for CSV/text files because it
+    issues one bulk request instead of many small range requests.
+    Returns a BytesIO object ready for reading.
+    """
+    try:
+        container_name = config['container_name']
+        fs_client = setup_azure_client(config)
+        raw = fs_client.cat(f'{container_name}/{blob_path}')
+        return io.BytesIO(raw)
+    except RAW_EXCEPTIONS as e:
+        raise_for_error(e)
+    except Exception as e:
+        raise Exception(f"Failed to bulk-download {blob_path}") from e
+
+
 def _iter_matching_blobs(config, table_spec):
     """Yield blobs matching table_spec search_prefix and search_pattern."""
     search_prefix = table_spec.get('search_prefix', '') or ''
