@@ -6,9 +6,12 @@ import re
 import gzip
 import struct
 import itertools
+import tempfile
 import singer
 import backoff
 import adlfs
+from azure.identity import ClientSecretCredential
+from azure.storage.blob import BlobServiceClient
 from singer_encodings import (
     csv as singer_csv,
     jsonl as singer_jsonl,
@@ -27,6 +30,41 @@ from tap_azure_cloud_storage.exceptions import (
 LOGGER = singer.get_logger()
 
 MAX_TRIES = 5  # Maximum total attempts (initial + retries) for backoff decorator
+
+LARGE_FILE_THRESHOLD_BYTES = 100 * 1024 * 1024  # 100 MB
+
+# Per-request network timeout (seconds) used by the sync BlobClient downloader
+BLOB_DOWNLOAD_TIMEOUT = 600
+
+
+def _make_blob_client(config, blob_path):
+    """Return a synchronous BlobClient built from tap config credentials."""
+    storage_account_name = config['storage_account_name']
+    container_name = config['container_name']
+    account_url = f"https://{storage_account_name}.blob.core.windows.net"
+
+    if config.get('client_id') and config.get('client_secret') and config.get('tenant_id'):
+        credential = ClientSecretCredential(
+            tenant_id=config['tenant_id'],
+            client_id=config['client_id'],
+            client_secret=config['client_secret'],
+        )
+        service = BlobServiceClient(account_url=account_url, credential=credential)
+    elif config.get('connection_string'):
+        service = BlobServiceClient.from_connection_string(config['connection_string'])
+    elif config.get('account_key'):
+        service = BlobServiceClient(
+            account_url=account_url,
+            credential=config['account_key'],
+        )
+    else:
+        # Managed identity / DefaultAzureCredential path
+        from azure.identity import DefaultAzureCredential
+        service = BlobServiceClient(
+            account_url=account_url,
+            credential=DefaultAzureCredential(),
+        )
+    return service.get_blob_client(container=container_name, blob=blob_path)
 
 # Global Azure filesystem instance for streaming Parquet/Avro files
 fs = None
@@ -295,16 +333,41 @@ def get_file_handle(config, blob_path):
 )
 def get_file_bytes(config, blob_path):
     """
-    Download the entire file as bytes in a single HTTP GET (fs.cat).
-    ~20x faster than streaming (fs.open) for CSV/text files because it
-    issues one bulk request instead of many small range requests.
-    Returns a BytesIO object ready for reading.
+    Download a blob and return a seekable file-like object.
+
+    * Files <= LARGE_FILE_THRESHOLD_BYTES are kept in a BytesIO (in RAM).
+    * Larger files are streamed into a TemporaryFile on disk so that the
+      process never needs to hold the full content in memory at once.
+
+    Uses the synchronous azure-storage-blob BlobClient instead of adlfs.cat()
+    to avoid the aiohttp socket-read timeout that fires on multi-chunk parallel
+    downloads of large files.
     """
     try:
-        container_name = config['container_name']
-        fs_client = setup_azure_client(config)
-        raw = fs_client.cat(f'{container_name}/{blob_path}')
-        return io.BytesIO(raw)
+        blob_client = _make_blob_client(config, blob_path)
+
+        # Probe file size so we can choose the right destination buffer.
+        props = blob_client.get_blob_properties()
+        file_size = props.size
+        LOGGER.info("Downloading blob %s (%s bytes).", blob_path, file_size)
+
+        if file_size <= LARGE_FILE_THRESHOLD_BYTES:
+            # Small file — keep entirely in memory.
+            data = blob_client.download_blob(
+                max_concurrency=4,
+                timeout=BLOB_DOWNLOAD_TIMEOUT,
+            ).readall()
+            return io.BytesIO(data)
+
+        # Large file — stream to a temp file so RAM usage stays flat.
+        tmp = tempfile.TemporaryFile()
+        blob_client.download_blob(
+            max_concurrency=4,
+            timeout=BLOB_DOWNLOAD_TIMEOUT,
+        ).readinto(tmp)
+        tmp.seek(0)
+        return tmp
+
     except RAW_EXCEPTIONS as e:
         raise_for_error(e)
     except Exception as e:
