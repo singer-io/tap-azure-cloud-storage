@@ -11,9 +11,9 @@ import io
 class TestExcelFileDetection(unittest.TestCase):
     """Test Excel file detection and routing"""
 
-    @patch('tap_azure_cloud_storage.azure_storage.get_file_handle')
+    @patch('tap_azure_cloud_storage.azure_storage.get_file_bytes')
     @patch('tap_azure_cloud_storage.sync.sync_excel_file')
-    def test_xlsx_extension_routes_to_excel_handler(self, mock_sync_excel, mock_get_handle):
+    def test_xlsx_extension_routes_to_excel_handler(self, mock_sync_excel, mock_get_bytes):
         """Test that .xlsx files are routed to sync_excel_file"""
         from tap_azure_cloud_storage.sync import sync_table_file
 
@@ -22,7 +22,7 @@ class TestExcelFileDetection(unittest.TestCase):
         table_spec = {'table_name': 'employees', 'key_properties': ['id']}
         stream = {'schema': {'properties': {}}, 'metadata': []}
 
-        mock_get_handle.return_value = MagicMock()
+        mock_get_bytes.return_value = io.BytesIO(b'fake xlsx content')
         mock_sync_excel.return_value = 10
 
         result = sync_table_file(config, blob_path, table_spec, stream)
