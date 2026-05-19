@@ -9,6 +9,8 @@ import itertools
 import singer
 import backoff
 import adlfs
+from azure.identity import ClientSecretCredential
+from azure.storage.blob import BlobServiceClient
 from singer_encodings import (
     csv as singer_csv,
     jsonl as singer_jsonl,
@@ -27,6 +29,65 @@ from tap_azure_cloud_storage.exceptions import (
 LOGGER = singer.get_logger()
 
 MAX_TRIES = 5  # Maximum total attempts (initial + retries) for backoff decorator
+
+# Per-request network timeout (seconds) used by the sync BlobClient downloader
+BLOB_DOWNLOAD_TIMEOUT = 600
+
+
+def _make_blob_client(config, blob_path):
+    """Return a synchronous BlobClient built from tap config credentials."""
+    storage_account_name = config['storage_account_name']
+    container_name = config['container_name']
+    account_url = f"https://{storage_account_name}.blob.core.windows.net"
+
+    if config.get('client_id') and config.get('client_secret') and config.get('tenant_id'):
+        credential = ClientSecretCredential(
+            tenant_id=config['tenant_id'],
+            client_id=config['client_id'],
+            client_secret=config['client_secret'],
+        )
+        service = BlobServiceClient(account_url=account_url, credential=credential)
+    elif config.get('connection_string'):
+        service = BlobServiceClient.from_connection_string(config['connection_string'])
+    elif config.get('account_key'):
+        service = BlobServiceClient(
+            account_url=account_url,
+            credential=config['account_key'],
+        )
+    else:
+        from azure.identity import DefaultAzureCredential
+        service = BlobServiceClient(
+            account_url=account_url,
+            credential=DefaultAzureCredential(),
+        )
+    return service.get_blob_client(container=container_name, blob=blob_path)
+
+
+class _RawDownloadStream(io.RawIOBase):
+    """Wraps a StorageStreamDownloader as a non-seekable io.RawIOBase.
+
+    io.BufferedReader wraps this to provide readline() and peek() without
+    loading the full file into memory — only the BufferedReader's internal
+    8 KB buffer is held at any time.
+    """
+
+    def __init__(self, downloader):
+        self._downloader = downloader
+
+    def readinto(self, b):
+        data = self._downloader.read(len(b))
+        if not data:
+            return 0
+        n = len(data)
+        b[:n] = data
+        return n
+
+    def readable(self):
+        return True
+
+    def seekable(self):
+        return False
+
 
 # Global Azure filesystem instance for streaming Parquet/Avro files
 fs = None
@@ -278,6 +339,84 @@ def get_file_handle(config, blob_path):
         raise_for_error(e)
     except Exception as e:
         raise Exception(f"Failed to open streaming handle for {blob_path}") from e
+
+
+@backoff.on_exception(
+    backoff.expo,
+    AzureRateLimitError,
+    max_tries=6,
+    max_time=60,
+    jitter=None,
+)
+@backoff.on_exception(
+    backoff.expo,
+    AzureBackoffError,
+    max_tries=MAX_TRIES,
+    factor=2,
+)
+def get_file_bytes(config, blob_path):
+    """
+    Download a blob and return a seekable file-like object.
+
+    Uses the synchronous azure-storage-blob BlobClient instead of adlfs to avoid
+    the aiohttp socket-read stall that occurs on multi-chunk downloads with adlfs.
+    """
+    try:
+        blob_client = _make_blob_client(config, blob_path)
+
+        props = blob_client.get_blob_properties()
+        LOGGER.info("Downloading blob %s (%s bytes).", blob_path, props.size)
+
+        data = blob_client.download_blob(
+            max_concurrency=4,
+            timeout=BLOB_DOWNLOAD_TIMEOUT,
+        ).readall()
+        return io.BytesIO(data)
+
+    except RAW_EXCEPTIONS as e:
+        raise_for_error(e)
+    except Exception as e:
+        raise Exception(f"Failed to bulk-download {blob_path}") from e
+
+
+@backoff.on_exception(
+    backoff.expo,
+    AzureRateLimitError,
+    max_tries=6,
+    max_time=60,
+    jitter=None,
+)
+@backoff.on_exception(
+    backoff.expo,
+    AzureBackoffError,
+    max_tries=MAX_TRIES,
+    factor=2,
+)
+def get_file_stream(config, blob_path):
+    """
+    Return a streaming io.BufferedReader for sequential text formats (CSV, JSONL, etc.).
+
+    Uses the sync BlobClient (no aiohttp) with max_concurrency=4 for fast download,
+    but does NOT load the full file into RAM. Memory usage is limited to
+    io.BufferedReader's internal 8 KB buffer plus the azure SDK's active download chunk.
+
+    Use get_file_bytes() instead for formats that require random access / seeking
+    (parquet, avro, xlsx, gz).
+    """
+    try:
+        blob_client = _make_blob_client(config, blob_path)
+        props = blob_client.get_blob_properties()
+        LOGGER.info("Streaming blob %s (%s bytes).", blob_path, props.size)
+        downloader = blob_client.download_blob(
+            max_concurrency=4,
+            timeout=BLOB_DOWNLOAD_TIMEOUT,
+        )
+        return io.BufferedReader(_RawDownloadStream(downloader))
+    except RAW_EXCEPTIONS as e:
+        raise_for_error(e)
+    except Exception as e:
+        raise Exception(f"Failed to stream {blob_path}") from e
+
 
 def _iter_matching_blobs(config, table_spec):
     """Yield blobs matching table_spec search_prefix and search_pattern."""

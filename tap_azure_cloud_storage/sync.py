@@ -84,58 +84,40 @@ def sync_table_file(config, blob_path, table_spec, stream):
 
 
 def handle_file(config, blob_path, table_spec, stream, extension, file_handler=None):
-    # Check if file is gzipped despite non-gz extension (magic bytes: 1f 8b)
-    # This handles files like gz_stored_as_csv.csv which are gzipped but have .csv extension
-    if extension in ["csv", "txt", "tsv", "psv", "jsonl"] and not file_handler:
-        # For files without a handler (not from zip), check if they're secretly gzipped
-        file_handle = azure_storage.get_file_handle(config, blob_path)
-        if file_handle:
-            # Read first 2 bytes to check for gzip magic number
-            peek_data = file_handle.read(2)
-            file_handle.close()
-
-            if len(peek_data) >= 2 and peek_data[0] == 0x1f and peek_data[1] == 0x8b:
-                # Treat as a gz file instead
-                return sync_gz_file(config, blob_path, table_spec, stream)
-
-    # Track if we own the file handle (need to close it)
-    # If file_handler was passed in, caller owns it; otherwise we need to manage it
     own_handle = file_handler is None
     file_handle = file_handler
 
     try:
+        if file_handle is None:
+            if extension in ["csv", "txt", "tsv", "psv", "jsonl"]:
+                file_handle = azure_storage.get_file_stream(config, blob_path)
+            else:
+                file_handle = azure_storage.get_file_bytes(config, blob_path)
+        if file_handle is None:
+            azure_storage.skipped_files_count = azure_storage.skipped_files_count + 1
+            return 0
+
+        # For text-based formats opened by us, check for hidden gzip magic bytes (1f 8b).
+        # Use peek() — non-consuming, so stream position stays at 0 and no seek is needed.
+        if extension in ["csv", "txt", "tsv", "psv", "jsonl"] and own_handle:
+            peek_data = file_handle.peek(2)[:2]
+            if len(peek_data) >= 2 and peek_data[0] == 0x1f and peek_data[1] == 0x8b:
+                # Gzip detected. Close the streaming handle and re-download as seekable
+                # BytesIO because gzip header parsing requires seek() support.
+                file_handle.close()
+                file_handle = azure_storage.get_file_bytes(config, blob_path)
+                return sync_gz_file(config, blob_path, table_spec, stream, file_handler=file_handle)
+
         if extension in ["csv", "txt", "tsv", "psv"]:
-            # Use streaming file handle - doesn't load entire file into memory
-            if file_handle is None:
-                file_handle = azure_storage.get_file_handle(config, blob_path)
-            if file_handle is None:
-                azure_storage.skipped_files_count = azure_storage.skipped_files_count + 1
-                return 0
             return sync_csv_file(config, file_handle, blob_path, table_spec, stream)
 
         if extension == "parquet":
-            if file_handle is None:
-                file_handle = azure_storage.get_file_handle(config, blob_path)
-            if file_handle is None:
-                azure_storage.skipped_files_count = azure_storage.skipped_files_count + 1
-                return 0
             return sync_parquet_file(config, file_handle, blob_path, table_spec, stream)
 
         if extension == "avro":
-            if file_handle is None:
-                file_handle = azure_storage.get_file_handle(config, blob_path)
-            if file_handle is None:
-                azure_storage.skipped_files_count = azure_storage.skipped_files_count + 1
-                return 0
             return sync_avro_file(config, file_handle, blob_path, table_spec, stream)
 
         if extension == "jsonl":
-            # Use streaming file handle - doesn't load entire file into memory
-            if file_handle is None:
-                file_handle = azure_storage.get_file_handle(config, blob_path)
-            if file_handle is None:
-                azure_storage.skipped_files_count = azure_storage.skipped_files_count + 1
-                return 0
             iterator = jsonl.get_row_iterator(file_handle)
             records = sync_jsonl_file(config, iterator, blob_path, table_spec, stream)
             if records == 0:
@@ -144,12 +126,6 @@ def handle_file(config, blob_path, table_spec, stream, extension, file_handler=N
             return records
 
         if extension in ["xlsx"]:
-            # Excel file handling
-            if file_handle is None:
-                file_handle = azure_storage.get_file_handle(config, blob_path)
-            if file_handle is None:
-                azure_storage.skipped_files_count = azure_storage.skipped_files_count + 1
-                return 0
             return sync_excel_file(config, file_handle, blob_path, table_spec, stream)
 
         if extension in ("zip", "gz") and file_handler:
@@ -173,7 +149,7 @@ def handle_file(config, blob_path, table_spec, stream, extension, file_handler=N
 def sync_gz_file(config, blob_path, table_spec, stream, file_handler=None):
     """Handle .gz files by reading the original filename from gzip header."""
     # If file is extracted from zip use file object else get file object from Azure blob storage
-    file_object = file_handler if file_handler else azure_storage.get_file_handle(config, blob_path)
+    file_object = file_handler if file_handler else azure_storage.get_file_bytes(config, blob_path)
     if file_object is None:
         return 0
 
@@ -295,24 +271,24 @@ def sync_csv_file(config, file_handle, blob_path, table_spec, stream):
         iterator = csv_helper.get_row_iterator(file_handle, ts, None, True)
 
     records_synced = 0
+    schema = stream['schema']
+    mdata = metadata.to_map(stream['metadata'])
 
     if iterator:
-        for row in iterator:
-            if len(row) == 0:
-                continue
+        with Transformer() as transformer:
+            for row in iterator:
+                if len(row) == 0:
+                    continue
 
-            custom_columns = {
-                azure_storage.SDC_SOURCE_CONTAINER_COLUMN: container,
-                azure_storage.SDC_SOURCE_FILE_COLUMN: blob_path,
-                azure_storage.SDC_SOURCE_LINENO_COLUMN: records_synced + 2
-            }
-            rec = {**row, **custom_columns}
-
-            with Transformer() as transformer:
-                to_write = transformer.transform(rec, stream['schema'], metadata.to_map(stream['metadata']))
-
-            singer.write_record(table_name, to_write)
-            records_synced += 1
+                custom_columns = {
+                    azure_storage.SDC_SOURCE_CONTAINER_COLUMN: container,
+                    azure_storage.SDC_SOURCE_FILE_COLUMN: blob_path,
+                    azure_storage.SDC_SOURCE_LINENO_COLUMN: records_synced + 2
+                }
+                rec = {**row, **custom_columns}
+                to_write = transformer.transform(rec, schema, mdata)
+                singer.write_record(table_name, to_write)
+                records_synced += 1
     else:
         LOGGER.warning("Skipping \"%s\" file as it is empty", blob_path)
         azure_storage.skipped_files_count = azure_storage.skipped_files_count + 1
@@ -327,22 +303,21 @@ def sync_avro_parquet_file(config, iterator, blob_path, table_spec, stream):
     table_name = table_spec['table_name']
 
     records_synced = 0
+    schema = stream['schema']
+    mdata = metadata.to_map(stream['metadata'])
 
     if iterator is not None:
-        for row in iterator:
-
-            custom_columns = {
-                azure_storage.SDC_SOURCE_CONTAINER_COLUMN: container,
-                azure_storage.SDC_SOURCE_FILE_COLUMN: blob_path,
-                azure_storage.SDC_SOURCE_LINENO_COLUMN: records_synced + 1
-            }
-            rec = {**row, **custom_columns}
-
-            with Transformer() as transformer:
-                to_write = transformer.transform(rec, stream['schema'], metadata.to_map(stream['metadata']))
-
-            singer.write_record(table_name, to_write)
-            records_synced += 1
+        with Transformer() as transformer:
+            for row in iterator:
+                custom_columns = {
+                    azure_storage.SDC_SOURCE_CONTAINER_COLUMN: container,
+                    azure_storage.SDC_SOURCE_FILE_COLUMN: blob_path,
+                    azure_storage.SDC_SOURCE_LINENO_COLUMN: records_synced + 1
+                }
+                rec = {**row, **custom_columns}
+                to_write = transformer.transform(rec, schema, mdata)
+                singer.write_record(table_name, to_write)
+                records_synced += 1
     else:
         LOGGER.warning("Skipping \"%s\" file as it is empty", blob_path)
         azure_storage.skipped_files_count = azure_storage.skipped_files_count + 1
@@ -367,35 +342,33 @@ def sync_jsonl_file(config, iterator, blob_path, table_spec, stream):
     table_name = table_spec['table_name']
 
     records_synced = 0
+    schema = stream['schema']
+    mdata = metadata.to_map(stream['metadata'])
 
-    for row in iterator:
+    with Transformer() as transformer:
+        for row in iterator:
+            custom_columns = {
+                azure_storage.SDC_SOURCE_CONTAINER_COLUMN: container,
+                azure_storage.SDC_SOURCE_FILE_COLUMN: blob_path,
+                azure_storage.SDC_SOURCE_LINENO_COLUMN: records_synced + 1
+            }
+            rec = {**row, **custom_columns}
+            to_write = transformer.transform(rec, schema, mdata)
 
-        custom_columns = {
-            azure_storage.SDC_SOURCE_CONTAINER_COLUMN: container,
-            azure_storage.SDC_SOURCE_FILE_COLUMN: blob_path,
-            azure_storage.SDC_SOURCE_LINENO_COLUMN: records_synced + 1
-        }
-        rec = {**row, **custom_columns}
+            value = [{field: rec[field]} for field in set(rec) - set(to_write)]
 
-        with Transformer() as transformer:
-            to_write = transformer.transform(rec, stream['schema'], metadata.to_map(stream['metadata']))
+            if value:
+                # Log only field names, not actual data values
+                extra_fields = list(set(rec) - set(to_write))
+                LOGGER.warning("File '%s': Fields %s not found in catalog and will be stored in \"_sdc_extra\" field.", blob_path, extra_fields)
+                extra_data = {azure_storage.SDC_EXTRA_COLUMN: value}
+                update_to_write = {**to_write, **extra_data}
+                update_to_write = transformer.transform(update_to_write, schema, mdata)
+            else:
+                update_to_write = to_write
 
-        value = [{field: rec[field]} for field in set(rec) - set(to_write)]
-
-        if value:
-            # Log only field names, not actual data values
-            extra_fields = list(set(rec) - set(to_write))
-            LOGGER.warning("File '%s': Fields %s not found in catalog and will be stored in \"_sdc_extra\" field.", blob_path, extra_fields)
-            extra_data = {azure_storage.SDC_EXTRA_COLUMN: value}
-            update_to_write = {**to_write, **extra_data}
-        else:
-            update_to_write = to_write
-
-        with Transformer() as transformer:
-            update_to_write = transformer.transform(update_to_write, stream['schema'], metadata.to_map(stream['metadata']))
-
-        singer.write_record(table_name, update_to_write)
-        records_synced += 1
+            singer.write_record(table_name, update_to_write)
+            records_synced += 1
 
     return records_synced
 
@@ -425,25 +398,26 @@ def sync_excel_file(config, file_handle, blob_path, table_spec, stream):
         return 0
 
     records_synced = 0
-    for sheet_name, row_dict in iterator:
-        if not isinstance(row_dict, dict) or len(row_dict) == 0:
-            continue
+    schema = stream['schema']
+    mdata = metadata.to_map(stream['metadata'])
 
-        # Unwrap singer-encodings commented cell wrappers so that
-        # the Transformer receives plain values instead of list-of-dict.
-        row_dict = azure_storage.unwrap_excel_commented_cells(row_dict)
+    with Transformer() as transformer:
+        for sheet_name, row_dict in iterator:
+            if not isinstance(row_dict, dict) or len(row_dict) == 0:
+                continue
 
-        custom_columns = {
-            azure_storage.SDC_SOURCE_CONTAINER_COLUMN: container,
-            azure_storage.SDC_SOURCE_FILE_COLUMN: f"{blob_path}/{sheet_name}",
-            azure_storage.SDC_SOURCE_LINENO_COLUMN: records_synced + 2
-        }
-        rec = {**row_dict, **custom_columns}
+            # Unwrap singer-encodings commented cell wrappers so that
+            # the Transformer receives plain values instead of list-of-dict.
+            row_dict = azure_storage.unwrap_excel_commented_cells(row_dict)
 
-        with Transformer() as transformer:
-            to_write = transformer.transform(rec, stream['schema'], metadata.to_map(stream['metadata']))
-
-        singer.write_record(table_name, to_write)
-        records_synced += 1
+            custom_columns = {
+                azure_storage.SDC_SOURCE_CONTAINER_COLUMN: container,
+                azure_storage.SDC_SOURCE_FILE_COLUMN: f"{blob_path}/{sheet_name}",
+                azure_storage.SDC_SOURCE_LINENO_COLUMN: records_synced + 2
+            }
+            rec = {**row_dict, **custom_columns}
+            to_write = transformer.transform(rec, schema, mdata)
+            singer.write_record(table_name, to_write)
+            records_synced += 1
 
     return records_synced
