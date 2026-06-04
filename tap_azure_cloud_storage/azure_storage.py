@@ -368,7 +368,7 @@ def get_file_bytes(config, blob_path):
         LOGGER.info("Downloading blob %s (%s bytes).", blob_path, props.size)
 
         data = blob_client.download_blob(
-            max_concurrency=4,
+            max_concurrency=8,
             timeout=BLOB_DOWNLOAD_TIMEOUT,
         ).readall()
         return io.BytesIO(data)
@@ -396,7 +396,7 @@ def get_file_stream(config, blob_path):
     """
     Return a streaming io.BufferedReader for sequential text formats (CSV, JSONL, etc.).
 
-    Uses the sync BlobClient (no aiohttp) with max_concurrency=4 for fast download,
+    Uses the sync BlobClient (no aiohttp) with max_concurrency=8 for fast download,
     but does NOT load the full file into RAM. Memory usage is limited to
     io.BufferedReader's internal 8 KB buffer plus the azure SDK's active download chunk.
 
@@ -408,7 +408,7 @@ def get_file_stream(config, blob_path):
         props = blob_client.get_blob_properties()
         LOGGER.info("Streaming blob %s (%s bytes).", blob_path, props.size)
         downloader = blob_client.download_blob(
-            max_concurrency=4,
+            max_concurrency=8,
             timeout=BLOB_DOWNLOAD_TIMEOUT,
         )
         return io.BufferedReader(_RawDownloadStream(downloader))
