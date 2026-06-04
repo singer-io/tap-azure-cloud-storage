@@ -1,6 +1,6 @@
 ## 0.0.2
-  * Bump version for urllib3, azure-storage-blob, adlfs [#07](https://github.com/singer-io/tap-azure-cloud-storage/pull/7)
-  * SAC-30831 Improve file streaming [#07](https://github.com/singer-io/tap-azure-cloud-storage/pull/7)
+  * Improve file streaming [#07](https://github.com/singer-io/tap-azure-cloud-storage/pull/7)
+  * Bump dependencies for compliance
 
 ## 0.0.1
 
