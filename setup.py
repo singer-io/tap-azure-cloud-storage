@@ -3,7 +3,7 @@
 from setuptools import setup
 
 setup(name='tap-azure-cloud-storage',
-      version='0.0.2',
+      version='0.0.3',
       description='Singer tap for extracting files from Azure Cloud Storage',
       author='Qlik',
       url='https://www.qlik.com',
